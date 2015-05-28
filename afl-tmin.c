@@ -23,6 +23,8 @@
 
 #include "config.h"
 #include "types.h"
+#include "winapi.h"
+
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
@@ -136,6 +138,7 @@ static inline u8 anything_set(void) {
 }
 
 
+#ifndef _WIN32
 
 /* Get rid of shared memory and temp files (atexit handler). */
 
@@ -148,7 +151,6 @@ static void remove_shm(void) {
 
 
 /* Configure shared memory. */
-
 static void setup_shm(void) {
 
   u8* shm_str;
@@ -170,6 +172,35 @@ static void setup_shm(void) {
   if (!trace_bits) PFATAL("shmat() failed");
 
 }
+#else // _WIN32
+static void remove_shm(void) {
+
+  unlink(prog_in); /* Ignore errors */
+  native_shmctl(shm_id, IPC_RMID, NULL);
+
+}
+static void setup_shm(void) {
+
+  u8* shm_str;
+
+  shm_id = native_shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
+
+  if (shm_id < 0) PFATAL("shmget() failed");
+
+  atexit(remove_shm);
+
+  shm_str = alloc_printf("%d", shm_id);
+
+  setenv(SHM_ENV_VAR, shm_str, 1);
+
+  ck_free(shm_str);
+
+  trace_bits = native_shmat(shm_id, NULL, 0);
+
+  if (!trace_bits) PFATAL("shmat() failed");
+
+}
+#endif // _WIN32
 
 
 /* Read initial file. */
@@ -246,7 +277,11 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
 
   prog_in_fd = write_to_file(prog_in, mem, len);
 
+#ifndef _WIN32
   child_pid = fork();
+#else
+  child_pid = native_fork();
+#endif
 
   if (child_pid < 0) PFATAL("fork() failed");
 
@@ -302,7 +337,11 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
 
   setitimer(ITIMER_REAL, &it, NULL);
 
+#ifndef _WIN32
   if (waitpid(child_pid, &status, WUNTRACED) <= 0) FATAL("waitpid() failed");
+#else
+  if (native_waitpid(child_pid, &status, WUNTRACED) <= 0) FATAL("waitpid() failed");
+#endif
 
   child_pid = 0;
   it.it_value.tv_sec = 0;

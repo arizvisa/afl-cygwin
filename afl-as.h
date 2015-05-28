@@ -104,6 +104,12 @@
 
  */
 
+#ifdef _WIN32
+#  define CALL(str)		"call _" str "\n"
+#else
+#  define CALL(str)		"call " str "\n"
+#endif /* ^__APPLE__ */
+
 static const u8* trampoline_fmt_32 =
 
   "\n"
@@ -212,20 +218,27 @@ static const u8* main_payload_32 =
   "  pushl %ecx\n"
   "\n"
   "  pushl $.AFL_SHM_ENV\n"
-  "  call  getenv\n"
+//  "  call  getenv\n"
+  CALL("getenv")
   "  addl  $4, %esp\n"
   "\n"
   "  testl %eax, %eax\n"
   "  je    __afl_setup_abort\n"
   "\n"
   "  pushl %eax\n"
-  "  call  atoi\n"
+//  "  call  atoi\n"
+  CALL("atoi")
   "  addl  $4, %esp\n"
   "\n"
   "  pushl $0          /* shmat flags    */\n"
   "  pushl $0          /* requested addr */\n"
   "  pushl %eax        /* SHM ID         */\n"
-  "  call  shmat\n"
+//  "  call  shmat\n"
+#ifndef _WIN32
+  CALL("shmat")
+#else
+  CALL("native_shmat")
+#endif
   "  addl  $12, %esp\n"
   "\n"
   "  cmpl $-1, %eax\n"
@@ -255,7 +268,8 @@ static const u8* main_payload_32 =
   "  pushl $4          /* length    */\n"
   "  pushl $__afl_temp /* data      */\n"
   "  pushl $" STRINGIFY((FORKSRV_FD + 1)) "  /* file desc */\n"
-  "  call  write\n"
+//  "  call  write\n"
+  CALL("write")
   "  addl  $12, %esp\n"
   "\n"
   "  cmpl  $4, %eax\n"
@@ -268,7 +282,8 @@ static const u8* main_payload_32 =
   "  pushl $4          /* length    */\n"
   "  pushl $__afl_temp /* data      */\n"
   "  pushl $" STRINGIFY(FORKSRV_FD) "        /* file desc */\n"
-  "  call  read\n"
+//  "  call  read\n"
+  CALL("read")
   "  addl  $12, %esp\n"
   "\n"
   "  cmpl  $4, %eax\n"
@@ -279,7 +294,8 @@ static const u8* main_payload_32 =
   "     caches getpid() results and offers no way to update the value, breaking\n"
   "     abort(), raise(), and a bunch of other things :-( */\n"
   "\n"
-  "  call fork\n"
+//  "  call fork\n"
+  CALL("native_fork")
   "\n"
   "  cmpl $0, %eax\n"
   "  jl   __afl_die\n"
@@ -292,13 +308,19 @@ static const u8* main_payload_32 =
   "  pushl $4              /* length    */\n"
   "  pushl $__afl_fork_pid /* data      */\n"
   "  pushl $" STRINGIFY((FORKSRV_FD + 1)) "      /* file desc */\n"
-  "  call  write\n"
+//  "  call  write\n"
+  CALL("write")
   "  addl  $12, %esp\n"
   "\n"
   "  pushl $2             /* WUNTRACED */\n"
   "  pushl $__afl_temp    /* status    */\n"
   "  pushl __afl_fork_pid /* PID       */\n"
-  "  call  waitpid\n"
+//  "  call  waitpid\n"
+#ifndef _WIN32
+  CALL("waitpid")
+#else
+  CALL("native_waitpid")
+#endif
   "  addl  $12, %esp\n"
   "\n"
   "  cmpl  $0, %eax\n"
@@ -309,7 +331,8 @@ static const u8* main_payload_32 =
   "  pushl $4          /* length    */\n"
   "  pushl $__afl_temp /* data      */\n"
   "  pushl $" STRINGIFY((FORKSRV_FD + 1)) "  /* file desc */\n"
-  "  call  write\n"
+//  "  call  write\n"
+  CALL("write")
   "  addl  $12, %esp\n"
   "\n"
   "  jmp __afl_fork_wait_loop\n"
@@ -319,10 +342,12 @@ static const u8* main_payload_32 =
   "  /* In child process: close fds, resume execution. */\n"
   "\n"
   "  pushl $" STRINGIFY(FORKSRV_FD) "\n"
-  "  call  close\n"
+//  "  call  close\n"
+  CALL("close")
   "\n"
   "  pushl $" STRINGIFY((FORKSRV_FD + 1)) "\n"
-  "  call  close\n"
+//  "  call  close\n"
+  CALL("close")
   "\n"
   "  addl  $8, %esp\n"
   "\n"
@@ -334,7 +359,8 @@ static const u8* main_payload_32 =
   "__afl_die:\n"
   "\n"
   "  xorl %eax, %eax\n"
-  "  call exit\n"
+//  "  call exit\n"
+  CALL("exit")
   "\n"
   "__afl_setup_abort:\n"
   "\n"

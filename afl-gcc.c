@@ -35,6 +35,8 @@
 
 #include "config.h"
 #include "types.h"
+#include "winapi.h" // XXX
+
 #include "debug.h"
 #include "alloc-inl.h"
 
@@ -303,10 +305,20 @@ int main(int argc, char** argv) {
 
   edit_params(argc, argv);
 
+  if (!be_quiet)
+    scream_parameters(cc_params);
   execvp(cc_params[0], (char**)cc_params);
 
   FATAL("Oops, failed to execute '%s' - check your PATH", cc_params[0]);
 
   return 0;
+}
 
+void
+scream_parameters(char** parms)
+{
+    OKF("Executing:"); SAYF(cBRI);
+    while (*parms != NULL)
+        SAYF("%s ", *(parms++));
+    SAYF(cRST "\n");
 }
