@@ -4,15 +4,22 @@
 #include <windows.h>
 #include <ntdef.h>
 
+#include <sys/types.h>
+
+#define DebugBreak() do {   \
+    printf("[%s:%d] Debug attach to %u<%3$x>\n",__FILE__,__LINE__,(unsigned)GetCurrentProcessId());   \
+    __asm__("jmp .\nmovl %0, %%eax\n" :: "i" (__FILE__^__LINE__) : "eax"); \
+} while (0)
+
 /** posix types */
 #ifdef _WIN32
-    typedef HANDLE _pfd; // posix file-descriptor
-    typedef HANDLE _pid_t;
+    typedef HANDLE _pfd;        // dual posix file-descriptor and HANDLE
+    typedef HANDLE _pid_t;      // really a HANDLE to a process
 
 //        #define pid_t _pid_t
 #else
-    typedef int _pfd;
-    typedef int _pid_t;
+    typedef int _pfd;       // really an fd
+    typedef int _pid_t;     // really a posix pid
 /*
     #if defined(HAVE_PID_T)
         typedef DWORD _pid_t;
@@ -29,13 +36,19 @@ _pid_t native_fork();
 _pid_t native_waitpid(_pid_t, int*, int);
 _pfd native_dup(_pfd);
 _pfd native_dup2(_pfd, _pfd);
+int native_open(const char*, int, ...);
+ssize_t native_read(_pfd, void*, size_t);
+ssize_t native_write(_pfd, const void*, size_t);
 int native_close(_pfd);
 int native_pipe(_pfd*);
-int native_execv(const char*, char* const[]);
-int native_execve(const char*, char* const[], char*const[]);
-int native_execvp(const char *, char *const[]);
+_pid_t native_execv(const char*, char* const[]);
+_pid_t native_execve(const char*, char* const[], char*const[]);
+_pid_t native_execvp(const char *, char *const[]);
 
 /** shm wrappers */
+#ifdef _SYS_SHM_H
+    #error __FILE__ "needs to be included before <sys/shm.h>"
+#endif
 #define _SYS_SHM_H   // prevent <sys/shm.h> from being included
 
 typedef enum { IPC_PRIVATE } _key_t;

@@ -80,27 +80,32 @@ afl-gotcpu: afl-gotcpu.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
 
 else
-CFLAGS += -D_WIN32
+CFLAGS += -D_WIN32 -include winapi.h
+
+test-%.o: test-%.c
+	@echo "[*] Instrument-Compiling $< to $@"
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) -c $< -o $@
+
+test-%.exe: test-%.o winapi.o
+	@echo "[*] Instrument-Linking $< to $@"
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
-%: %.o
+%.exe: %.o
+	@echo "[*] Compiling $< to $@"
 	$(CC) $(LDFLAGS) $^ -o $@
 
 ## rules
-afl-gcc: afl-gcc.o winapi.o | test_x86
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
-	set -e; for i in afl-g++ afl-clang afl-clang++; do ln -sf afl-gcc $$i; done
-
-afl-as: afl-as.o winapi.o | test_x86
+afl-as.exe: afl-as.o winapi.o
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 	ln -sf afl-as as
 
-# dependencies
-afl-fuzz: afl-fuzz.o winapi.o | test_x86
-afl-showmap: afl-showmap.o winapi.o | test_x86
-afl-tmin: afl-tmin.o winapi.o | test_x86
-afl-gotcpu: afl-gotcpu.o winapi.o | test_x86
+afl-gcc.exe: afl-gcc.o winapi.o
+afl-fuzz.exe: afl-fuzz.o winapi.o
+afl-showmap.exe: afl-showmap.o winapi.o
+afl-tmin.exe: afl-tmin.o winapi.o
+afl-gotcpu.exe: afl-gotcpu.o winapi.o
 
 afl-gcc.o: afl-gcc.c $(COMM_HDR)
 afl-as.o: afl-as.c afl-as.h $(COMM_HDR)
@@ -167,10 +172,12 @@ publish: clean
 	echo -n "$(VERSION)" >~/www/afl/version.txt
 
 ifdef WIN32
-test_win32: afl-gcc afl-as afl-showmap
-	@echo "[*] Testing the CC wrapper and instrumentation output..."
-	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) -c test-instr.c -o test-instr.o
+test_build: afl-gcc.exe afl-as.exe afl-showmap.exe
+	@echo "[*] Testing the CC wrapper and instrumentation output for Win32..."
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) -c $(CFLAGS) test-instr.c -o test-instr.o $(LDFLAGS)
 	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) test-instr.o winapi.o -o test-instr $(LDFLAGS)
+	#echo 0 | ./afl-showmap -m none -q -o .test-instr0 ./test-instr
+	#echo 1 | ./afl-showmap -m none -q -o .test-instr1 ./test-instr
 	echo 0 | ./afl-showmap -m none -o .test-instr0 ./test-instr
 	echo 1 | ./afl-showmap -m none -o .test-instr1 ./test-instr
 	#@rm -f test-instr

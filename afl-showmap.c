@@ -25,8 +25,6 @@
 
 #include "config.h"
 #include "types.h"
-#include "winapi.h" // XXX
-
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
@@ -238,7 +236,11 @@ static u32 write_results(void) {
 static void handle_timeout(int sig) {
 
   child_timed_out = 1;
+#ifndef _WIN32
   if (child_pid > 0) kill(child_pid, SIGKILL);
+#else
+  if (child_pid > 0) native_kill(child_pid, SIGKILL);
+#endif
 
 }
 
@@ -299,7 +301,20 @@ static void run_target(char** argv) {
     r.rlim_max = r.rlim_cur = 0;
     setrlimit(RLIMIT_CORE, &r); /* Ignore errors */
 
+#ifndef _WIN32
     execv(target_path, argv);
+#else
+    _pid_t monitor;
+    monitor = native_execv(target_path, argv);
+
+    if (native_waitpid(monitor, &status, WUNTRACED) == monitor) {
+        GetExitCodeProcess(monitor, &status);
+        ExitProcess(status);
+        FATAL("ExitProcess(%d) failed", status);
+    }
+
+    RPFATAL(status, "Unable to wait for child process");
+#endif
 
     *(u32*)trace_bits = EXEC_FAIL_SIG;
     exit(0);
@@ -365,7 +380,11 @@ static void handle_stop_sig(int sig) {
 
   stop_soon = 1;
 
+#ifndef _WIN32
   if (child_pid > 0) kill(child_pid, SIGKILL);
+#else
+  if (child_pid > 0) native_kill(child_pid, SIGKILL);
+#endif
 
 }
 

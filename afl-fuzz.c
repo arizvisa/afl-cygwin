@@ -28,8 +28,6 @@
 
 #include "config.h"
 #include "types.h"
-#include "winapi.h"
-
 #include "debug.h"
 #include "alloc-inl.h"
 #include "hash.h"
@@ -2230,7 +2228,18 @@ static u8 run_target(char** argv) {
       setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                              "msan_track_origins=0", 0);
 
+#ifndef _WIN32
       execv(target_path, argv);
+#else
+      _pid_t monitor;
+      monitor = native_execv(target_path, argv);
+      if (native_waitpid(monitor, &status, WUNTRACED) == monitor) {
+          GetExitCodeProcess(monitor, &status);
+          ExitProcess(status);
+          block();
+      }
+      RPFATAL(status, "Unable to wait for child process");
+#endif
 
       /* Use a distinctive bitmap value to tell the parent about execv()
          falling through. */
@@ -6438,6 +6447,7 @@ static void sync_fuzzers(char** argv) {
 
 }
 
+#ifndef _WIN32
 
 /* Handle stop signal (Ctrl-C, etc). */
 
@@ -6449,6 +6459,18 @@ static void handle_stop_sig(int sig) {
   if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
 
 }
+#else // _WIN32
+/* Handle stop signal (Ctrl-C, etc). */
+
+static void handle_stop_sig(int sig) {
+
+  stop_soon = 1; 
+
+  if (child_pid > 0) native_kill(child_pid, SIGKILL);
+  if (forksrv_pid > 0) native_kill(forksrv_pid, SIGKILL);
+
+}
+#endif //_WIN32
 
 
 /* Handle skip request (SIGUSR1). */
@@ -6459,6 +6481,7 @@ static void handle_skipreq(int sig) {
 
 }
 
+#ifndef _WIN32
 /* Handle timeout (SIGALRM). */
 
 static void handle_timeout(int sig) {
@@ -6476,6 +6499,26 @@ static void handle_timeout(int sig) {
   }
 
 }
+
+#else // _WIN32
+/* Handle timeout (SIGALRM). */
+
+static void handle_timeout(int sig) {
+
+  child_timed_out = 1; 
+
+  if (child_pid > 0) {
+
+    native_kill(child_pid, SIGKILL);
+
+  } else if (child_pid == -1 && forksrv_pid > 0) {
+
+    native_kill(forksrv_pid, SIGKILL);
+
+  }
+
+}
+#endif // _WIN32
 
 
 /* Do a PATH search and find target binary to see that it exists and
