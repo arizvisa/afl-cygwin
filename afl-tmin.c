@@ -325,14 +325,7 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
 #ifndef _WIN32
     execv(target_path, argv);
 #else
-    _pid_t monitor;
-    monitor = native_execv(target_path, argv);
-    if (native_waitpid(monitor, &status, WUNTRACED) == monitor) {
-        GetExitCodeProcess(monitor, &status);
-        ExitProcess(status);
-        block();
-    }
-    RPFATAL(status, "Unable to wait for child process");
+    native_execv(target_path, argv);
 #endif
 
     *(u32*)trace_bits = EXEC_FAIL_SIG;

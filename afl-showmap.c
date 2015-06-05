@@ -304,16 +304,7 @@ static void run_target(char** argv) {
 #ifndef _WIN32
     execv(target_path, argv);
 #else
-    _pid_t monitor;
-    monitor = native_execv(target_path, argv);
-
-    if (native_waitpid(monitor, &status, WUNTRACED) == monitor) {
-        GetExitCodeProcess(monitor, &status);
-        ExitProcess(status);
-        FATAL("ExitProcess(%d) failed", status);
-    }
-
-    RPFATAL(status, "Unable to wait for child process");
+    native_execv(target_path, argv);
 #endif
 
     *(u32*)trace_bits = EXEC_FAIL_SIG;

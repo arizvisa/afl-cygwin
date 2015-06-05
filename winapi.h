@@ -2,13 +2,17 @@
 #define __winapi_h
 
 #include <windows.h>
+#include <winternl.h>
 #include <ntdef.h>
-
 #include <sys/types.h>
 
-#define DebugBreak() do {   \
+#ifdef __CYGWIN__
+#include <sys/cygwin.h>
+#endif
+
+#define DebugMark(...) do {   \
     printf("[%s:%d] Debug attach to %u<%3$x>\n",__FILE__,__LINE__,(unsigned)GetCurrentProcessId());   \
-    __asm__("jmp .\nmovl %0, %%eax\n" :: "i" (__FILE__^__LINE__) : "eax"); \
+    __asm__("jmp .\nmovl %0, %%eax\n" :: "i" (__LINE__) : "eax"); \
 } while (0)
 
 /** posix types */
@@ -41,9 +45,9 @@ ssize_t native_read(_pfd, void*, size_t);
 ssize_t native_write(_pfd, const void*, size_t);
 int native_close(_pfd);
 int native_pipe(_pfd*);
-_pid_t native_execv(const char*, char* const[]);
-_pid_t native_execve(const char*, char* const[], char*const[]);
-_pid_t native_execvp(const char *, char *const[]);
+int native_execv(const char*, char* const[]);
+int native_execve(const char*, char* const[], char*const[]);
+int native_execvp(const char *, char *const[]);
 
 /** shm wrappers */
 #ifdef _SYS_SHM_H
@@ -69,11 +73,12 @@ int native_shmctl(int, int, void*);
 enum mtx_type { mtx_timed, mtx_plain };
 typedef struct { HANDLE h; enum mtx_type t; } mtx_t;
 
-int mtx_init(mtx_t *mtx, int type);
-int mtx_lock(mtx_t *mtx);
-int mtx_timedlock(mtx_t * restrict mtx, const struct timespec * restrict ts);
-int mtx_trylock(mtx_t *mtx);
-int mtx_unlock(mtx_t *mtx);
+int mtx_init(mtx_t*, int);
+void mtx_destroy(mtx_t*);
+int mtx_lock(mtx_t*);
+int mtx_timedlock(mtx_t* restrict, const struct timespec* restrict);
+int mtx_trylock(mtx_t*);
+int mtx_unlock(mtx_t*);
 
 /** api defines */
 #define RTL_CLONE_PROCESS_FLAGS_CREATE_SUSPENDED 0x00000001
@@ -84,174 +89,7 @@ int mtx_unlock(mtx_t *mtx);
 #define RTL_CLONE_PARENT				0
 #define RTL_CLONE_CHILD					297
 
-/** api enums */
-typedef enum _PROCESSINFOCLASS
-{
-    ProcessBasicInformation,
-    ProcessQuotaLimits,
-    ProcessIoCounters,
-    ProcessVmCounters,
-    ProcessTimes,
-    ProcessBasePriority,
-    ProcessRaisePriority,
-    ProcessDebugPort,
-    ProcessExceptionPort,
-    ProcessAccessToken,
-    ProcessLdtInformation,
-    ProcessLdtSize,
-    ProcessDefaultHardErrorMode,
-    ProcessIoPortHandlers,
-    ProcessPooledUsageAndLimits,
-    ProcessWorkingSetWatch,
-    ProcessUserModeIOPL,
-    ProcessEnableAlignmentFaultFixup,
-    ProcessPriorityClass,
-    ProcessWx86Information,
-    ProcessHandleCount,
-    ProcessAffinityMask,
-    ProcessPriorityBoost,
-    ProcessDeviceMap,
-    ProcessSessionInformation,
-    ProcessForegroundInformation,
-    ProcessWow64Information,
-    ProcessImageFileName,
-    ProcessLUIDDeviceMapsEnabled,
-    ProcessBreakOnTermination,
-    ProcessDebugObjectHandle,
-    ProcessDebugFlags,
-    ProcessHandleTracing,
-    ProcessIoPriority,
-    ProcessExecuteFlags,
-    ProcessTlsInformation,
-    ProcessCookie,
-    ProcessImageInformation,
-    ProcessCycleTime,
-    ProcessPagePriority,
-    ProcessInstrumentationCallback,
-    MaxProcessInfoClass
-} PROCESSINFOCLASS;
-
-typedef enum _SYSTEM_INFORMATION_CLASS
-{
-    SystemBasicInformation,
-    SystemProcessorInformation,
-    SystemPerformanceInformation,
-    SystemTimeOfDayInformation,
-    SystemPathInformation, /// Obsolete: Use KUSER_SHARED_DATA
-    SystemProcessInformation,
-    SystemCallCountInformation,
-    SystemDeviceInformation,
-    SystemProcessorPerformanceInformation,
-    SystemFlagsInformation,
-    SystemCallTimeInformation,
-    SystemModuleInformation,
-    SystemLocksInformation,
-    SystemStackTraceInformation,
-    SystemPagedPoolInformation,
-    SystemNonPagedPoolInformation,
-    SystemHandleInformation,
-    SystemObjectInformation,
-    SystemPageFileInformation,
-    SystemVdmInstemulInformation,
-    SystemVdmBopInformation,
-    SystemFileCacheInformation,
-    SystemPoolTagInformation,
-    SystemInterruptInformation,
-    SystemDpcBehaviorInformation,
-    SystemFullMemoryInformation,
-    SystemLoadGdiDriverInformation,
-    SystemUnloadGdiDriverInformation,
-    SystemTimeAdjustmentInformation,
-    SystemSummaryMemoryInformation,
-    SystemMirrorMemoryInformation,
-    SystemPerformanceTraceInformation,
-    SystemObsolete0,
-    SystemExceptionInformation,
-    SystemCrashDumpStateInformation,
-    SystemKernelDebuggerInformation,
-    SystemContextSwitchInformation,
-    SystemRegistryQuotaInformation,
-    SystemExtendServiceTableInformation,
-    SystemPrioritySeperation,
-    SystemPlugPlayBusInformation,
-    SystemDockInformation,
-    SystemPowerInformationNative,
-    SystemProcessorSpeedInformation,
-    SystemCurrentTimeZoneInformation,
-    SystemLookasideInformation,
-    SystemTimeSlipNotification,
-    SystemSessionCreate,
-    SystemSessionDetach,
-    SystemSessionInformation,
-    SystemRangeStartInformation,
-    SystemVerifierInformation,
-    SystemAddVerifier,
-    SystemSessionProcessesInformation,
-    SystemLoadGdiDriverInSystemSpaceInformation,
-    SystemNumaProcessorMap,
-    SystemPrefetcherInformation,
-    SystemExtendedProcessInformation,
-    SystemRecommendedSharedDataAlignment,
-    SystemComPlusPackage,
-    SystemNumaAvailableMemory,
-    SystemProcessorPowerInformation,
-    SystemEmulationBasicInformation,
-    SystemEmulationProcessorInformation,
-    SystemExtendedHanfleInformation,
-    SystemLostDelayedWriteInformation,
-    SystemBigPoolInformation,
-    SystemSessionPoolTagInformation,
-    SystemSessionMappedViewInformation,
-    SystemHotpatchInformation,
-    SystemObjectSecurityMode,
-    SystemWatchDogTimerHandler,
-    SystemWatchDogTimerInformation,
-    SystemLogicalProcessorInformation,
-    SystemWo64SharedInformationObosolete,
-    SystemRegisterFirmwareTableInformationHandler,
-    SystemFirmwareTableInformation,
-    SystemModuleInformationEx,
-    SystemVerifierTriageInformation,
-    SystemSuperfetchInformation,
-    SystemMemoryListInformation,
-    SystemFileCacheInformationEx,
-    SystemThreadPriorityClientIdInformation,
-    SystemProcessorIdleCycleTimeInformation,
-    SystemVerifierCancellationInformation,
-    SystemProcessorPowerInformationEx,
-    SystemRefTraceInformation,
-    SystemSpecialPoolInformation,
-    SystemProcessIdInformation,
-    SystemErrorPortInformation,
-    SystemBootEnvironmentInformation,
-    SystemHypervisorInformation,
-    SystemVerifierInformationEx,
-    SystemTimeZoneInformation,
-    SystemImageFileExecutionOptionsInformation,
-    SystemCoverageInformation,
-    SystemPrefetchPathInformation,
-    SystemVerifierFaultsInformation,
-    MaxSystemInfoClass,
-} SYSTEM_INFORMATION_CLASS;
-
-typedef enum _OBJECT_INFORMATION_CLASS
-{
-    ObjectBasicInformation,
-    ObjectNameInformation,
-    ObjectTypeInformation,
-    ObjectTypesInformation,
-    ObjectHandleFlagInformation,
-    ObjectSessionInformation,
-    MaxObjectInfoClass
-} OBJECT_INFORMATION_CLASS;
-
 /** api structures */
-typedef struct _CLIENT_ID
-{
-    HANDLE UniqueProcess;
-    HANDLE UniqueThread;
-} CLIENT_ID;
-
 typedef struct _SECTION_IMAGE_INFORMATION
 {
     PVOID TransferAddress;
@@ -314,6 +152,7 @@ typedef NTSTATUS (WINAPI *pf_NtUnicodeStringToAnsiString)(PANSI_STRING, PCUNICOD
 typedef NTSTATUS (WINAPI *pf_RtlFreeAnsiString)(PANSI_STRING);
 typedef NTSTATUS (WINAPI *pf_NtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS, PVOID, SIZE_T, PSIZE_T);
 typedef NTSTATUS (WINAPI *pf_NtQueryObject)(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+typedef NTSTATUS (WINAPI *pf_LdrpInitializeProcess)(PCONTEXT, PVOID);
 
 /** api */
 extern pf_NtRtlCloneUserProcess CloneUserProcess;
@@ -323,6 +162,7 @@ extern pf_NtUnicodeStringToAnsiString UnicodeStringToAnsiString;
 extern pf_RtlFreeAnsiString FreeAnsiString;
 extern pf_NtQuerySystemInformation QuerySystemInformation;
 extern pf_NtQueryObject QueryObject;
+extern pf_LdrpInitializeProcess LdrpInitializeProcess;
 
 #endif
 

@@ -1961,7 +1961,11 @@ static void init_forkserver(char** argv) {
     setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                            "msan_track_origins=0", 0);
 
+#ifndef _WIN32
     execv(target_path, argv);
+#else
+    native_execv(target_path, argv);
+#endif
 
     /* Use a distinctive bitmap signature to tell the parent about execv()
        falling through. */
@@ -2231,14 +2235,7 @@ static u8 run_target(char** argv) {
 #ifndef _WIN32
       execv(target_path, argv);
 #else
-      _pid_t monitor;
-      monitor = native_execv(target_path, argv);
-      if (native_waitpid(monitor, &status, WUNTRACED) == monitor) {
-          GetExitCodeProcess(monitor, &status);
-          ExitProcess(status);
-          block();
-      }
-      RPFATAL(status, "Unable to wait for child process");
+      native_execv(target_path, argv);
 #endif
 
       /* Use a distinctive bitmap value to tell the parent about execv()
