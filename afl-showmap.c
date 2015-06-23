@@ -325,9 +325,9 @@ static void run_target(char** argv) {
   setitimer(ITIMER_REAL, &it, NULL);
 
 #ifndef _WIN32
-  if (waitpid(child_pid, &status, WUNTRACED) <= 0) FATAL("waitpid() failed");
+  if (waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
 #else
-  if (native_waitpid(child_pid, &status, WUNTRACED) <= 0) FATAL("waitpid() failed");
+  if (native_waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
 #endif
 
   child_pid = 0;
@@ -390,6 +390,8 @@ static void set_up_environment(void) {
 
   setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                          "msan_track_origins=0", 0);
+
+  unsetenv("AFL_PERSISTENT");
 
 }
 

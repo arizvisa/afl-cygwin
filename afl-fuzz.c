@@ -2009,10 +2009,10 @@ static void init_forkserver(char** argv) {
     FATAL("Timeout while initializing fork server (adjusting -t may help)");
 
 #ifndef _WIN32
-  if (waitpid(forksrv_pid, &status, WUNTRACED) <= 0)
+  if (waitpid(forksrv_pid, &status, 0) <= 0)
     PFATAL("waitpid() failed");
 #else
-  if (native_waitpid(forksrv_pid, &status, WUNTRACED) <= 0)
+  if (native_waitpid(forksrv_pid, &status, 0) <= 0)
     PFATAL("waitpid() failed");
 #endif
 
@@ -2146,6 +2146,8 @@ static void init_forkserver(char** argv) {
 static u8 run_target(char** argv) {
 
   static struct itimerval it;
+  static u32 prev_timed_out = 0;
+
   int status = 0;
   u32 tb4;
 
@@ -2253,7 +2255,7 @@ static u8 run_target(char** argv) {
     /* In non-dumb mode, we have the fork server up and running, so simply
        tell it to have at it, and then read back PID. */
 
-    if ((res = write(fsrv_ctl_fd, &status, 4)) != 4) {
+    if ((res = write(fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
       if (stop_soon) return 0;
       RPFATAL(res, "Unable to request new process from fork server (OOM?)");
@@ -2283,9 +2285,9 @@ static u8 run_target(char** argv) {
   if (dumb_mode == 1 || no_forkserver) {
 
 #ifndef _WIN32
-    if (waitpid(child_pid, &status, WUNTRACED) <= 0) PFATAL("waitpid() failed");
+    if (waitpid(child_pid, &status, 0) <= 0) PFATAL("waitpid() failed");
 #else
-    if (native_waitpid(child_pid, &status, WUNTRACED) <= 0) PFATAL("waitpid() failed");
+    if (native_waitpid(child_pid, &status, 0) <= 0) PFATAL("waitpid() failed");
 #endif
 
   } else {
@@ -2322,6 +2324,8 @@ static u8 run_target(char** argv) {
 #else
   classify_counts((u32*)trace_bits);
 #endif /* ^__x86_64__ */
+
+  prev_timed_out = child_timed_out;
 
   /* Report outcome to caller. */
 
@@ -3555,9 +3559,13 @@ static void maybe_delete_out_dir(void) {
 
   /* All right, let's do <out_dir>/crashes/id:* and <out_dir>/hangs/id:*. */
 
-  fn = alloc_printf("%s/crashes/README.txt", out_dir);
-  unlink(fn); /* Ignore errors */
-  ck_free(fn);
+  if (!in_place_resume) {
+
+    fn = alloc_printf("%s/crashes/README.txt", out_dir);
+    unlink(fn); /* Ignore errors */
+    ck_free(fn);
+
+  }
 
   fn = alloc_printf("%s/crashes", out_dir);
 
@@ -6483,14 +6491,15 @@ static void handle_skipreq(int sig) {
 
 static void handle_timeout(int sig) {
 
-  child_timed_out = 1; 
 
   if (child_pid > 0) {
 
+    child_timed_out = 1; 
     kill(child_pid, SIGKILL);
 
   } else if (child_pid == -1 && forksrv_pid > 0) {
 
+    child_timed_out = 1; 
     kill(forksrv_pid, SIGKILL);
 
   }
@@ -6502,15 +6511,15 @@ static void handle_timeout(int sig) {
 
 static void handle_timeout(int sig) {
 
-  child_timed_out = 1; 
-
   if (child_pid > 0) {
 
     native_kill(child_pid, SIGKILL);
+    child_timed_out = 1; 
 
   } else if (child_pid == -1 && forksrv_pid > 0) {
 
     native_kill(forksrv_pid, SIGKILL);
+    child_timed_out = 1; 
 
   }
 
@@ -7541,9 +7550,11 @@ int main(int argc, char** argv) {
 
   }
 
-  if (getenv("AFL_NO_FORKSRV"))   no_forkserver    = 1;
-  if (getenv("AFL_NO_CPU_RED"))   no_cpu_meter_red = 1;
-  if (getenv("AFL_NO_VAR_CHECK")) no_var_check     = 1;
+  if (getenv("AFL_NO_FORKSRV")) no_forkserver    = 1;
+  if (getenv("AFL_NO_CPU_RED")) no_cpu_meter_red = 1;
+
+  if (getenv("AFL_NO_VAR_CHECK") || getenv("AFL_PERSISTENT"))
+    no_var_check = 1;
 
   if (dumb_mode == 2 && no_forkserver)
     FATAL("AFL_DUMB_FORKSRV and AFL_NO_FORKSRV are mutually exclusive");

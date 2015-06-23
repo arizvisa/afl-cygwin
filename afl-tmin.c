@@ -136,7 +136,6 @@ static inline u8 anything_set(void) {
 }
 
 
-#ifndef _WIN32
 
 /* Get rid of shared memory and temp files (atexit handler). */
 
@@ -149,6 +148,7 @@ static void remove_shm(void) {
 
 
 /* Configure shared memory. */
+
 static void setup_shm(void) {
 
   u8* shm_str;
@@ -344,9 +344,9 @@ static u8 run_target(char** argv, u8* mem, u32 len, u8 first_run) {
   setitimer(ITIMER_REAL, &it, NULL);
 
 #ifndef _WIN32
-  if (waitpid(child_pid, &status, WUNTRACED) <= 0) FATAL("waitpid() failed");
+  if (waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
 #else
-  if (native_waitpid(child_pid, &status, WUNTRACED) <= 0) FATAL("waitpid() failed");
+  if (native_waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
 #endif
 
   child_pid = 0;
@@ -732,6 +732,8 @@ static void set_up_environment(void) {
 
   setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                          "msan_track_origins=0", 0);
+
+  unsetenv("AFL_PERSISTENT");
 
 }
 

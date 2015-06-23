@@ -48,7 +48,9 @@ AFL-style in-process fuzzer for LLVM (Kostya Serebryany)
 --------------------------------------------------------
 
   Provides an evolutionary instrumentation-guided fuzzing harness that allows
-  some programs to be fuzzed without the fork / execve overhead.
+  some programs to be fuzzed without the fork / execve overhead. (Similar
+  functionality is now available as the "persistent" feature described in
+  ../llvm_mode/README.llvm.)
 
   http://llvm.org/docs/LibFuzzer.html
 
@@ -112,6 +114,13 @@ Distfuzz-AFL (Martijn Bogaard)
   be exposed on the Internet.
 
   https://github.com/MartijnB/disfuzz-afl
+
+afl-launch (Ben Nagy)
+---------------------
+
+  Another AFL launcher utility with a simple CLI.
+
+  https://github.com/bnagy/afl-launch
 
 AFL fixup shim (Ben Nagy)
 -------------------------

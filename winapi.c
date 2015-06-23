@@ -1,5 +1,5 @@
 #include <windows.h>
-#include <winternl.h>
+#include <sys/wait.h>
 #include <sys/signal.h>
 
 #include <stdio.h>
@@ -240,6 +240,7 @@ _fork_prepare_child(HANDLE hChild, HANDLE hData)
     HANDLE handle;
 
     struct _PEB* peb = _get_PebBaseAddress(hCurrentProcess);
+#if 0
     struct _PEB cPeb; SIZE_T cPeb_size;
 
     // platform state
@@ -247,6 +248,7 @@ _fork_prepare_child(HANDLE hChild, HANDLE hData)
             &cPeb, sizeof(cPeb), &cPeb_size) == FALSE)
         return -1;
     assert(cPeb_size == sizeof(cPeb));
+#endif
 
     /*
     +0x04c ReadOnlySharedMemoryBase : Ptr32 Void
@@ -331,6 +333,9 @@ native_fork()
             goto fail_process;
         CloseHandle(ev);
         CloseHandle(pri.ProcessHandle); CloseHandle(pri.ThreadHandle);
+
+        // This is the only clean way I've found to re-allocate the handles
+        //   that ntdll keeps open to some registry keys and other things..
         hr = LdrpInitializeProcess(NULL, ntdll_base);
 
         _fork_child_entry(hFile);
@@ -871,7 +876,7 @@ _shm_close(int identifier)
 /** shm wrappers */
 
 // FIXME: key and id are actually treated the same here..
-//          it shouldn't matter since we're not support IPC_EXCL
+//          it shouldn't matter since we're not supporting IPC_EXCL
 int
 native_shmget(_key_t key, size_t size, int shmflg)
 {

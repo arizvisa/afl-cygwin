@@ -165,4 +165,3 @@ extern pf_NtQueryObject QueryObject;
 extern pf_LdrpInitializeProcess LdrpInitializeProcess;
 
 #endif
-

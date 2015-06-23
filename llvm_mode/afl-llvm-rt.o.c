@@ -23,11 +23,14 @@
 #include "../types.h"
 
 #include <stdlib.h>
+#include <signal.h>
+#include <unistd.h>
+#include <assert.h>
+
 #include <sys/mman.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
-#include <unistd.h>
-#include <assert.h>
+#include <sys/types.h>
 
 
 /* Globals needed by the injected instrumentation. The __afl_area_initial region
@@ -37,6 +40,7 @@
 u8  __afl_area_initial[MAP_SIZE];
 u8* __afl_area_ptr = __afl_area_initial;
 u16 __afl_prev_loc;
+
 
 /* SHM setup. */
 
@@ -73,6 +77,10 @@ static void __afl_map_shm(void) {
 static void __afl_start_forkserver(void) {
 
   static u8 tmp[4];
+  s32 child_pid;
+
+  u8  child_stopped = 0;
+  u8  use_persistent = !!getenv("AFL_PERSISTENT");
 
   /* Phone home and tell the parent that we're OK. If parent isn't there,
      assume we're not running in forkserver mode and just execute program. */
@@ -81,32 +89,61 @@ static void __afl_start_forkserver(void) {
 
   while (1) {
 
-    s32 child_pid;
+    u32 was_killed;
     int status;
 
     /* Wait for parent by reading from the pipe. Abort if read fails. */
 
-    if (read(FORKSRV_FD, tmp, 4) != 4) exit(1);
+    if (read(FORKSRV_FD, &was_killed, 4) != 4) exit(1);
 
-    /* Once woken up, create a clone of our process. */
+    /* If we stopped the child in persistent mode, but there was a race
+       condition and afl-fuzz already issued SIGKILL, write off the old
+       process. */
 
-    child_pid = fork();
-    if (child_pid < 0) exit(1);
+    if (child_stopped && was_killed) {
+      child_stopped = 0;
+      if (waitpid(child_pid, &status, 0) < 0) exit(1);
+    }
 
-    /* In child process: close fds, resume execution. */
+    if (!child_stopped) {
 
-    if (!child_pid) {
+      /* Once woken up, create a clone of our process. */
 
-      close(FORKSRV_FD);
-      close(FORKSRV_FD + 1);
-      return;
+      child_pid = fork();
+      if (child_pid < 0) exit(1);
+
+      /* In child process: close fds, resume execution. */
+
+      if (!child_pid) {
+
+        close(FORKSRV_FD);
+        close(FORKSRV_FD + 1);
+        return;
+  
+      }
+
+    } else {
+
+      /* Special handling for persistent mode: if the child is alive but
+         currently stopped, simply restart it with SIGCONT. */
+
+      kill(child_pid, SIGCONT);
+      child_stopped = 0;
 
     }
 
     /* In parent process: write PID to pipe, then wait for child. */
 
     if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(1);
-    if (waitpid(child_pid, &status, WUNTRACED) < 0) exit(1);
+
+    if (waitpid(child_pid, &status, use_persistent ? WUNTRACED : 0) < 0)
+      exit(1);
+
+    /* In persistent mode, the child stops itself with SIGSTOP to indicate
+       a successful run. In this case, we want to wake it up without forking
+       again. */
+
+    if (WIFSTOPPED(status)) child_stopped = 1;
 
     /* Relay wait status to pipe, then loop back. */
 
