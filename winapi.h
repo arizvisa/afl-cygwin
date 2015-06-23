@@ -164,4 +164,17 @@ extern pf_NtQuerySystemInformation QuerySystemInformation;
 extern pf_NtQueryObject QueryObject;
 extern pf_LdrpInitializeProcess LdrpInitializeProcess;
 
+/** redefinitions */
+#include <sys/shm.h>
+#define shmctl native_shmctl
+#define shmget native_shmget
+#define shmat native_shmat
+#include <unistd.h>
+#define fork native_fork
+#define execv native_execv
+#include <sys/wait.h>
+#define waitpid native_waitpid
+#include <signal.h>
+#define kill native_kill
+
 #endif

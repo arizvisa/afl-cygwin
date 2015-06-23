@@ -1037,19 +1037,11 @@ static inline void classify_counts(u32* mem) {
 
 /* Get rid of shared memory (atexit handler). */
 
-#ifndef _WIN32
 static void remove_shm(void) {
 
   shmctl(shm_id, IPC_RMID, NULL);
 
 }
-#else // _WIN32
-static void remove_shm(void) {
-
-  native_shmctl(shm_id, IPC_RMID, NULL);
-
-}
-#endif // _WIN32
 
 
 /* Compact trace bytes into a smaller bitmap. We effectively just drop the
@@ -1186,7 +1178,6 @@ static void cull_queue(void) {
 
 /* Configure shared memory and virgin_bits. This is called at startup. */
 
-#ifndef _WIN32
 static void setup_shm(void) {
 
   u8* shm_str;
@@ -1219,40 +1210,6 @@ static void setup_shm(void) {
   if (!trace_bits) PFATAL("shmat() failed");
 
 }
-#else // _WIN32
-static void setup_shm(void) {
-
-  u8* shm_str;
-
-  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE);
-
-  memset(virgin_hang, 255, MAP_SIZE);
-  memset(virgin_crash, 255, MAP_SIZE);
-
-  shm_id = native_shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
-
-  if (shm_id < 0) PFATAL("shmget() failed");
-
-  atexit(remove_shm);
-
-  shm_str = alloc_printf("%d", shm_id);
-
-  /* If somebody is asking us to fuzz instrumented binaries in dumb mode,
-     we don't want them to detect instrumentation, since we won't be sending
-     fork server commands. This should be replaced with better auto-detection
-     later on, perhaps? */
-
-  if (dumb_mode != 1)
-    setenv(SHM_ENV_VAR, shm_str, 1);
-
-  ck_free(shm_str);
-
-  trace_bits = native_shmat(shm_id, NULL, 0);
-
-  if (!trace_bits) PFATAL("shmat() failed");
-
-}
-#endif // _WIN32
 
 
 /* Load postprocessor, if available. */
@@ -1860,11 +1817,7 @@ static void init_forkserver(char** argv) {
 
   if (pipe(st_pipe) || pipe(ctl_pipe)) PFATAL("pipe() failed");
 
-#ifndef _WIN32
   forksrv_pid = fork();
-#else
-  forksrv_pid = native_fork();
-#endif
 
   if (forksrv_pid < 0) PFATAL("fork() failed");
 
@@ -1961,11 +1914,7 @@ static void init_forkserver(char** argv) {
     setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                            "msan_track_origins=0", 0);
 
-#ifndef _WIN32
     execv(target_path, argv);
-#else
-    native_execv(target_path, argv);
-#endif
 
     /* Use a distinctive bitmap signature to tell the parent about execv()
        falling through. */
@@ -2008,13 +1957,8 @@ static void init_forkserver(char** argv) {
   if (child_timed_out)
     FATAL("Timeout while initializing fork server (adjusting -t may help)");
 
-#ifndef _WIN32
   if (waitpid(forksrv_pid, &status, 0) <= 0)
     PFATAL("waitpid() failed");
-#else
-  if (native_waitpid(forksrv_pid, &status, 0) <= 0)
-    PFATAL("waitpid() failed");
-#endif
 
   if (WIFSIGNALED(status)) {
 
@@ -2167,11 +2111,7 @@ static u8 run_target(char** argv) {
 
   if (dumb_mode == 1 || no_forkserver) {
 
-#ifndef _WIN32
     child_pid = fork();
-#else
-    child_pid = native_fork();
-#endif
 
     if (child_pid < 0) PFATAL("fork() failed");
 
@@ -2234,11 +2174,7 @@ static u8 run_target(char** argv) {
       setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                              "msan_track_origins=0", 0);
 
-#ifndef _WIN32
       execv(target_path, argv);
-#else
-      native_execv(target_path, argv);
-#endif
 
       /* Use a distinctive bitmap value to tell the parent about execv()
          falling through. */
@@ -2284,11 +2220,7 @@ static u8 run_target(char** argv) {
 
   if (dumb_mode == 1 || no_forkserver) {
 
-#ifndef _WIN32
     if (waitpid(child_pid, &status, 0) <= 0) PFATAL("waitpid() failed");
-#else
-    if (native_waitpid(child_pid, &status, 0) <= 0) PFATAL("waitpid() failed");
-#endif
 
   } else {
 
@@ -6452,7 +6384,6 @@ static void sync_fuzzers(char** argv) {
 
 }
 
-#ifndef _WIN32
 
 /* Handle stop signal (Ctrl-C, etc). */
 
@@ -6464,18 +6395,6 @@ static void handle_stop_sig(int sig) {
   if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
 
 }
-#else // _WIN32
-/* Handle stop signal (Ctrl-C, etc). */
-
-static void handle_stop_sig(int sig) {
-
-  stop_soon = 1; 
-
-  if (child_pid > 0) native_kill(child_pid, SIGKILL);
-  if (forksrv_pid > 0) native_kill(forksrv_pid, SIGKILL);
-
-}
-#endif //_WIN32
 
 
 /* Handle skip request (SIGUSR1). */
@@ -6486,11 +6405,9 @@ static void handle_skipreq(int sig) {
 
 }
 
-#ifndef _WIN32
 /* Handle timeout (SIGALRM). */
 
 static void handle_timeout(int sig) {
-
 
   if (child_pid > 0) {
 
@@ -6505,26 +6422,6 @@ static void handle_timeout(int sig) {
   }
 
 }
-
-#else // _WIN32
-/* Handle timeout (SIGALRM). */
-
-static void handle_timeout(int sig) {
-
-  if (child_pid > 0) {
-
-    native_kill(child_pid, SIGKILL);
-    child_timed_out = 1; 
-
-  } else if (child_pid == -1 && forksrv_pid > 0) {
-
-    native_kill(forksrv_pid, SIGKILL);
-    child_timed_out = 1; 
-
-  }
-
-}
-#endif // _WIN32
 
 
 /* Do a PATH search and find target binary to see that it exists and

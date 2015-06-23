@@ -113,7 +113,6 @@ static void classify_counts(u8* mem) {
 
 }
 
-#ifndef _WIN32
 
 /* Get rid of shared memory (atexit handler). */
 
@@ -143,43 +142,10 @@ static void setup_shm(void) {
   ck_free(shm_str);
 
   trace_bits = shmat(shm_id, NULL, 0);
-
+  
   if (!trace_bits) PFATAL("shmat() failed");
 
 }
-#else // _WIN32
-
-static void remove_shm(void) {
-
-  native_shmctl(shm_id, IPC_RMID, NULL);
-
-}
-
-
-/* Configure shared memory. */
-
-static void setup_shm(void) {
-
-  u8* shm_str;
-
-  shm_id = native_shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
-
-  if (shm_id < 0) PFATAL("shmget() failed");
-
-  atexit(remove_shm);
-
-  shm_str = alloc_printf("%d", shm_id);
-
-  setenv(SHM_ENV_VAR, shm_str, 1);
-
-  ck_free(shm_str);
-
-  trace_bits = native_shmat(shm_id, NULL, 0);
-
-  if (!trace_bits) PFATAL("shmat() failed");
-
-}
-#endif
 
 /* Write results. */
 
@@ -236,11 +202,7 @@ static u32 write_results(void) {
 static void handle_timeout(int sig) {
 
   child_timed_out = 1;
-#ifndef _WIN32
   if (child_pid > 0) kill(child_pid, SIGKILL);
-#else
-  if (child_pid > 0) native_kill(child_pid, SIGKILL);
-#endif
 
 }
 
@@ -257,11 +219,7 @@ static void run_target(char** argv) {
 
   MEM_BARRIER();
 
-#ifndef _WIN32
   child_pid = fork();
-#else
-  child_pid = native_fork();
-#endif
 
   if (child_pid < 0) PFATAL("fork() failed");
 
@@ -301,11 +259,7 @@ static void run_target(char** argv) {
     r.rlim_max = r.rlim_cur = 0;
     setrlimit(RLIMIT_CORE, &r); /* Ignore errors */
 
-#ifndef _WIN32
     execv(target_path, argv);
-#else
-    native_execv(target_path, argv);
-#endif
 
     *(u32*)trace_bits = EXEC_FAIL_SIG;
     exit(0);
@@ -324,11 +278,7 @@ static void run_target(char** argv) {
 
   setitimer(ITIMER_REAL, &it, NULL);
 
-#ifndef _WIN32
   if (waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
-#else
-  if (native_waitpid(child_pid, &status, 0) <= 0) FATAL("waitpid() failed");
-#endif
 
   child_pid = 0;
   it.it_value.tv_sec = 0;
@@ -371,11 +321,7 @@ static void handle_stop_sig(int sig) {
 
   stop_soon = 1;
 
-#ifndef _WIN32
   if (child_pid > 0) kill(child_pid, SIGKILL);
-#else
-  if (child_pid > 0) native_kill(child_pid, SIGKILL);
-#endif
 
 }
 

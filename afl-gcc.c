@@ -35,8 +35,6 @@
 
 #include "config.h"
 #include "types.h"
-#include "winapi.h" // XXX
-
 #include "debug.h"
 #include "alloc-inl.h"
 
