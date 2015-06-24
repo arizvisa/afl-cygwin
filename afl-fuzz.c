@@ -6515,15 +6515,27 @@ static void check_binary(u8* fname) {
 
   }
 
-#ifndef __APPLE__
+#ifdef _WIN32
+  int e_lfanew;
+  u8* f_hdr;
 
-  if (f_data[0] != 0x7f || memcmp(f_data + 1, "ELF", 3))
-    FATAL("Program '%s' is not an ELF binary", target_path);
+  if (f_data[0] != 'M' || f_data[1] != 'Z')
+    FATAL("Program '%s' is not a Dos executable ", target_path);
+  e_lfanew = *(int*)(&f_data[0x3c]);
 
-#else
+  f_hdr = f_data + e_lfanew;
+  if (f_hdr[0] != 'P' || f_hdr[1] != 'E' || f_hdr[2] != '\x00' && f_hdr[3] != '\x00')
+    FATAL("Program '%s' is not a Portable executable ", target_path);
+
+#elif defined(__APPLE__)
 
   if (f_data[0] != 0xCF || f_data[1] != 0xFA || f_data[2] != 0xED)
     FATAL("Program '%s' is not a 64-bit Mach-O binary", target_path);
+
+#else
+
+  if (f_data[0] != 0x7f || memcmp(f_data + 1, "ELF", 3))
+    FATAL("Program '%s' is not an ELF binary", target_path);
 
 #endif /* ^!__APPLE__ */
 
