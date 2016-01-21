@@ -42,6 +42,11 @@ u8* __afl_area_ptr = __afl_area_initial;
 u16 __afl_prev_loc;
 
 
+/* Running in persistent mode? */
+
+static u8 is_persistent;
+
+
 /* SHM setup. */
 
 static void __afl_map_shm(void) {
@@ -60,7 +65,7 @@ static void __afl_map_shm(void) {
 
     /* Whooooops. */
 
-    if (__afl_area_ptr == (void *)-1) exit(1);
+    if (__afl_area_ptr == (void *)-1) _exit(1);
 
     /* Write something into the bitmap so that even with low AFL_INST_RATIO,
        our parent doesn't give up on us. */
@@ -80,7 +85,6 @@ static void __afl_start_forkserver(void) {
   s32 child_pid;
 
   u8  child_stopped = 0;
-  u8  use_persistent = !!getenv("AFL_PERSISTENT");
 
   /* Phone home and tell the parent that we're OK. If parent isn't there,
      assume we're not running in forkserver mode and just execute program. */
@@ -94,7 +98,7 @@ static void __afl_start_forkserver(void) {
 
     /* Wait for parent by reading from the pipe. Abort if read fails. */
 
-    if (read(FORKSRV_FD, &was_killed, 4) != 4) exit(1);
+    if (read(FORKSRV_FD, &was_killed, 4) != 4) _exit(1);
 
     /* If we stopped the child in persistent mode, but there was a race
        condition and afl-fuzz already issued SIGKILL, write off the old
@@ -102,7 +106,7 @@ static void __afl_start_forkserver(void) {
 
     if (child_stopped && was_killed) {
       child_stopped = 0;
-      if (waitpid(child_pid, &status, 0) < 0) exit(1);
+      if (waitpid(child_pid, &status, 0) < 0) _exit(1);
     }
 
     if (!child_stopped) {
@@ -110,7 +114,7 @@ static void __afl_start_forkserver(void) {
       /* Once woken up, create a clone of our process. */
 
       child_pid = fork();
-      if (child_pid < 0) exit(1);
+      if (child_pid < 0) _exit(1);
 
       /* In child process: close fds, resume execution. */
 
@@ -134,10 +138,10 @@ static void __afl_start_forkserver(void) {
 
     /* In parent process: write PID to pipe, then wait for child. */
 
-    if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) exit(1);
+    if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) _exit(1);
 
-    if (waitpid(child_pid, &status, use_persistent ? WUNTRACED : 0) < 0)
-      exit(1);
+    if (waitpid(child_pid, &status, is_persistent ? WUNTRACED : 0) < 0)
+      _exit(1);
 
     /* In persistent mode, the child stops itself with SIGSTOP to indicate
        a successful run. In this case, we want to wake it up without forking
@@ -147,14 +151,40 @@ static void __afl_start_forkserver(void) {
 
     /* Relay wait status to pipe, then loop back. */
 
-    if (write(FORKSRV_FD + 1, &status, 4) != 4) exit(1);
+    if (write(FORKSRV_FD + 1, &status, 4) != 4) _exit(1);
 
   }
 
 }
 
 
-/* This one can be called from user code when AFL_DEFER_FORKSRV is set. */
+/* A simplified persistent mode handler, used as explained in README.llvm. */
+
+int __afl_persistent_loop(unsigned int max_cnt) {
+
+  static u8  first_pass = 1;
+  static u32 cycle_cnt;
+
+  if (first_pass) {
+
+    cycle_cnt  = max_cnt;
+    first_pass = 0;
+    return 1;
+
+  }
+
+  if (is_persistent && --cycle_cnt) {
+
+    raise(SIGSTOP);
+    return 1;
+
+  } else return 0;
+
+}
+
+
+/* This one can be called from user code when deferred forkserver mode
+    is enabled. */
 
 void __afl_manual_init(void) {
 
@@ -175,7 +205,10 @@ void __afl_manual_init(void) {
 
 __attribute__((constructor(0))) void __afl_auto_init(void) {
 
-  if (getenv("AFL_DEFER_FORKSRV")) return;
+  is_persistent = !!getenv(PERSIST_ENV_VAR);
+
+  if (getenv(DEFER_ENV_VAR)) return;
+
   __afl_manual_init();
 
 }

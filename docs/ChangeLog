@@ -13,8 +13,145 @@ Want to stay in the loop on major new features? Join our mailing list by
 sending a mail to <afl-users+subscribe@googlegroups.com>.
 
 Not sure if you should upgrade? The lowest currently recommended version
-is 1.76b. If you're stuck on an earlier release, it's strongly advisable
+is 1.92b. If you're stuck on an earlier release, it's strongly advisable
 to get on with the times.
+
+--------------
+Version 1.96b:
+--------------
+
+  - Added -fpic to CFLAGS for the clang plugin, as suggested by Hanno Boeck.
+
+  - Made another clang change (IRBuilder) suggested by Jeff Trull.
+
+  - Fixed several typos, spotted by Jakub Wilk.
+
+  - Added support for AFL_SHUFFLE_QUEUE, based on discussions with
+    Christian Holler.
+
+--------------
+Version 1.95b:
+--------------
+
+  - Fixed a harmless bug when handling -B. Spotted by Jacek Wielemborek.
+
+  - Made the exit message a bit more accurate when AFL_EXIT_WHEN_DONE is set.
+
+  - Added some error-checking for old-style forkserver syntax. Suggested by
+    Ben Nagy.
+
+  - Switched from exit() to _exit() in injected code to avoid snafus with
+    destructors in C++ code. Spotted by sunblate.
+
+  - Made a change to avoid spuriously setting __AFL_SHM_ID when 
+    AFL_DUMB_FORKSRV is set in conjunction with -n. Spotted by Jakub Wilk.
+
+--------------
+Version 1.94b:
+--------------
+
+  - Changed allocator alignment to improve support for non-x86 systems (now
+    that llvm_mode makes this more feasible).
+
+  - Fixed a minor typo in afl-cmin. Spotted by Jonathan Neuschafer.
+
+  - Fixed an obscure bug that would affect people trying to use afl-gcc
+    with $TMP set but $TMPDIR absent. Spotted by Jeremy Barnes.
+
+--------------
+Version 1.93b:
+--------------
+
+  - Hopefully fixed a problem with MacOS X and persistent mode, spotted by
+    Leo Barnes.
+
+--------------
+Version 1.92b:
+--------------
+
+  - Made yet another C++ fix (namespaces). Reported by Daniel Lockyer.
+
+--------------
+Version 1.91b:
+--------------
+
+  - Made another fix to make 1.90b actually work properly with C++ (d'oh).
+    Problem spotted by Daniel Lockyer.
+
+--------------
+Version 1.90b:
+--------------
+
+  - Fixed a minor typo spotted by Kai Zhao; and made several other minor updates
+    to docs.
+
+  - Updated the project URL for python-afl. Requested by Jakub Wilk.
+
+  - Fixed a potential problem with deferred mode signatures getting optimized
+    out by the linker (with --gc-sections).
+
+--------------
+Version 1.89b:
+--------------
+
+  - Revamped the support for persistent and deferred forkserver modes.
+    Both now feature simpler syntax and do not require companion env
+    variables. Suggested by Jakub Wilk.
+
+  - Added a bit more info about afl-showmap. Suggested by Jacek Wielemborek.
+
+--------------
+Version 1.88b:
+--------------
+
+  - Made AFL_EXIT_WHEN_DONE work in non-tty mode. Issue spotted by
+    Jacek Wielemborek.
+
+--------------
+Version 1.87b:
+--------------
+
+  - Added QuickStartGuide.txt, a one-page quick start doc.
+
+  - Fixed several typos spotted by Dominique Pelle.
+
+  - Revamped several parts of README.
+
+--------------
+Version 1.86b:
+--------------
+
+  - Added support for AFL_SKIP_CRASHES, which is a very hackish solution to
+    the problem of resuming sessions with intermittently crashing inputs.
+
+  - Removed the hard-fail terminal size check, replaced with a dynamic
+    warning shown in place of the UI. Based on feedback from Christian Holler.
+
+  - Fixed a minor typo in show_stats. Spotted by Dingbao Xie.
+
+--------------
+Version 1.85b:
+--------------
+
+  - Fixed a garbled sentence in notes on parallel fuzzing. Thanks to Jakub Wilk.
+
+  - Fixed a minor glitch in afl-cmin. Spotted by Jonathan Foote.
+
+--------------
+Version 1.84b:
+--------------
+
+  - Made SIMPLE_FILES behave as expected when naming backup directories for
+    crashes and hangs.
+
+  - Added the total number of favored paths to fuzzer_stats. Requested by
+    Ben Nagy.
+
+  - Made afl-tmin, afl-fuzz, and afl-cmin reject negative values passed to
+    -t and -m, since they generally won't work as expected.
+
+  - Made a fix for no lahf / sahf support on older versions of FreeBSD.
+    Patch contributed by Alex Moneger.
 
 --------------
 Version 1.83b:

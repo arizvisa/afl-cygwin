@@ -337,8 +337,6 @@ static void set_up_environment(void) {
   setenv("MSAN_OPTIONS", "exit_code=" STRINGIFY(MSAN_ERROR) ":"
                          "msan_track_origins=0", 0);
 
-  unsetenv("AFL_PERSISTENT");
-
 }
 
 
@@ -444,7 +442,8 @@ static void usage(u8* argv0) {
        "  -q            - sink program's output and don't show messages\n"
        "  -e            - show edge coverage only, ignore hit counts\n\n"
 
-       "For additional tips, please consult %s/README.\n\n",
+       "This tool displays raw tuple data captured by AFL instrumentation.\n"
+       "For additional help, consult %s/README.\n\n",
 
        argv0, MEM_LIMIT, doc_path);
 
@@ -600,8 +599,8 @@ int main(int argc, char** argv) {
 
           }
 
-          if (sscanf(optarg, "%llu%c", &mem_limit, &suffix) < 1)
-            FATAL("Bad syntax used for -m");
+          if (sscanf(optarg, "%llu%c", &mem_limit, &suffix) < 1 ||
+              optarg[0] == '-') FATAL("Bad syntax used for -m");
 
           switch (suffix) {
 
@@ -630,7 +629,10 @@ int main(int argc, char** argv) {
 
         if (strcmp(optarg, "none")) {
           exec_tmout = atoi(optarg);
-          if (exec_tmout < 20) FATAL("Dangerously low value of -t");
+
+          if (exec_tmout < 20 || optarg[0] == '-')
+            FATAL("Dangerously low value of -t");
+
         }
 
         break;
