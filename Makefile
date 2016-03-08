@@ -41,7 +41,11 @@ endif
 
 COMM_HDR    = alloc-inl.h config.h debug.h types.h
 
+ifndef WIN32
 all: test_x86 $(PROGS) test_build all_done
+else
+all: test_x86 $(PROGS:=.exe) test_build all_done
+endif
 
 ifndef AFL_NOX86
 
@@ -81,25 +85,29 @@ afl-gotcpu: afl-gotcpu.c $(COMM_HDR) | test_x86
 
 else
 CFLAGS += -D_WIN32 -include winapi.h
+ifdef NATIVE
+CFLAGS += -D_NATIVE_
+endif
 
 test-%.o: test-%.c
 	@echo "[*] Instrument-Compiling $< to $@"
 	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) -c $< -o $@
 
 test-%.exe: test-%.o winapi.o
-	@echo "[*] Instrument-Linking $< to $@"
+	@echo "[*] Instrument-Linking $^ into $@"
 	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 %.o: %.c
 	@echo "[*] Compiling $< to $@"
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) -c $(CFLAGS) $< -o $@
+
 %.exe: %.o
-	@echo "[*] Linking $< to $@"
+	@echo "[*] Linking $^ into $@"
 	$(CC) $(LDFLAGS) $^ -o $@
 
 ## rules
 afl-as.exe: afl-as.o winapi.o
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
 	ln -sf afl-as as
 
 afl-gcc.exe: afl-gcc.o winapi.o
@@ -114,6 +122,7 @@ afl-fuzz.o: afl-fuzz.c $(COMM_HDR)
 afl-showmap.o: afl-showmap.c $(COMM_HDR)
 afl-tmin.o: afl-tmin.c $(COMM_HDR)
 afl-gotcpu.o: afl-gotcpu.c $(COMM_HDR)
+winapi.o: winapi.c winapi.h
 endif
 
 ifndef AFL_NOX86
@@ -174,10 +183,10 @@ publish: clean
 	echo -n "$(VERSION)" >~/www/afl/version.txt
 
 ifdef WIN32
-test_build: afl-gcc.exe afl-as.exe afl-showmap.exe
+test_build: winapi.o afl-gcc.exe afl-as.exe afl-showmap.exe
 	@echo "[*] Testing the CC wrapper and instrumentation output for Win32..."
 	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) -c $(CFLAGS) test-instr.c -o test-instr.o $(LDFLAGS)
-	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) test-instr.o winapi.o -o test-instr $(LDFLAGS)
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(LDFLAGS) winapi.o test-instr.o -o test-instr
 	#echo 0 | ./afl-showmap -m none -q -o .test-instr0 ./test-instr
 	#echo 1 | ./afl-showmap -m none -q -o .test-instr1 ./test-instr
 	echo 0 | ./afl-showmap -m none -o .test-instr0 ./test-instr
@@ -185,8 +194,8 @@ test_build: afl-gcc.exe afl-as.exe afl-showmap.exe
 	#@rm -f test-instr
 	@cmp -s .test-instr0 .test-instr1; DR="$$?"; rm -f .test-instr0 .test-instr1; if [ "$$DR" = "0" ]; then echo; echo "Oops, the instrumentation does not seem to be behaving correctly!"; echo; echo "Please ping <lcamtuf@google.com> to troubleshoot the issue."; echo; exit 1; fi
 	@echo "[+] All right, the instrumentation seems to be working!"
-build: afl-gcc.exe afl-as.exe afl-showmap.exe
-	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) -c $(CFLAGS) test-instr.c -o test-instr.o $(LDFLAGS)
-	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(CFLAGS) test-instr.o winapi.o -o test-instr $(LDFLAGS)
+build: winapi.o afl-gcc.exe afl-as.exe afl-showmap.exe
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) -c $(CFLAGS) test-instr.c -o test-instr.o
+	unset AFL_USE_ASAN AFL_USE_MSAN; AFL_QUIET=1 AFL_INST_RATIO=100 AFL_PATH=. ./$(TEST_CC) $(LDFLAGS) winapi.o test-instr.o -o test-instr
 #	echo 0 | ./afl-showmap -m none -o .test-instr0 ./test-instr
 endif

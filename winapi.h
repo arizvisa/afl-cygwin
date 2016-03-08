@@ -165,16 +165,33 @@ extern pf_NtQueryObject QueryObject;
 extern pf_LdrpInitializeProcess LdrpInitializeProcess;
 
 /** redefinitions */
+/*
+#define open native_open
+#define write native_write
+#define read native_read
+#define close native_close
+*/
 #include <sys/shm.h>
-#define shmctl native_shmctl
 #define shmget native_shmget
+#define shmctl native_shmctl
 #define shmat native_shmat
+#define shmdt native_shmdt
 #include <unistd.h>
-#define fork native_fork
-#define execv native_execv
+#ifdef _NATIVE_
+    #define fork native_fork
+    #define pipe native_pipe
+#endif
 #include <sys/wait.h>
-#define waitpid native_waitpid
+#ifdef _NATIVE_
+    #define waitpid native_waitpid
+    #define execv native_execv
+    #define execve native_execve
+    #define execvp native_execvp
+    #define setsid native_setsid
+#endif
 #include <signal.h>
-#define kill native_kill
+#ifdef _NATIVE_
+    #define kill native_kill
+#endif
 
 #endif

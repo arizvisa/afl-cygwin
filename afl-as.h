@@ -104,13 +104,18 @@
 
  */
 
-#ifdef _WIN32
-#  define CALL(str)		"call *_native_" str "\n"
-#elif defined(__CYGWIN__) || defined(__MSYS__)
-#  define CALL(str)		"call _" str "\n"
+#if defined(__CYGWIN__) || defined(__MSYS__)
+# define NATIVECALL(str)	"call _native_" str "\n" 
+# ifdef _NATIVE_
+#  define CALL(str)	NATIVECALL(str)
+# else
+#  define CALL(str)	"call _" str "\n"
+# endif
 #else
-#  define CALL(str)		"call " str "\n"
+#  define NATIVECALL(str)	"call " str "\n"
+#  define CALL(str)	NATIVECALL(STR)
 #endif /* ^__APPLE__ */
+
 
 static const u8* trampoline_fmt_32 =
 
@@ -212,7 +217,7 @@ static const u8* main_payload_32 =
   "  cmpb $0, __afl_setup_failure\n"
   "  jne  __afl_return\n"
 #ifdef _WIN32
-  CALL("init")
+  NATIVECALL("init")
 #endif
   "\n"
   "  /* Map SHM, jumping to __afl_setup_abort if something goes wrong.\n"
@@ -236,7 +241,7 @@ static const u8* main_payload_32 =
   "  pushl $0          /* shmat flags    */\n"
   "  pushl $0          /* requested addr */\n"
   "  pushl %eax        /* SHM ID         */\n"
-  CALL("shmat")
+  NATIVECALL("shmat")
   "  addl  $12, %esp\n"
   "\n"
   "  cmpl $-1, %eax\n"

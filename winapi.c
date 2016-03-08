@@ -27,7 +27,9 @@ pf_NtQuerySystemInformation QuerySystemInformation;
 pf_NtQueryObject QueryObject;
 pf_LdrpInitializeProcess LdrpInitializeProcess;
 //const size_t o_LdrpInitializeProcess = 0x474f9;
+//const size_t o_LdrpInitialize = 0x39336;
 #define o_LdrpInitializeProcess 0x474f9
+#define o_LdrpInitialize 0x39336
 
 struct import_t { PCHAR name; size_t offset; void* target; };
 
@@ -42,6 +44,7 @@ static struct import_t Ntdll_Imports[] =
     {"NtQuerySystemInformation", 0, &QuerySystemInformation},
     {"NtQueryObject", 0, &QueryObject},
     {NULL, o_LdrpInitializeProcess, &LdrpInitializeProcess},
+    {NULL, o_LdrpInitialize, NULL},
     {NULL, 0, NULL}
 };
 
@@ -61,7 +64,7 @@ fatal(const char* fmt, ...)
 
 __attribute__((constructor))
 void
-init(void)
+native_init(void)
 {
     struct import_t* imp;
     FARPROC fp;
@@ -82,6 +85,55 @@ init(void)
 }
 
 int
+whereExt(const char* path, char** result)
+{
+    static const char* PathExt_variable = "PATHEXT";
+    static const char* PathExt_delimiter = ";";
+    int res;
+    char* pathext, *ext;
+    char* fullpath;
+    char* wherextst;
+
+    assert(result != NULL);
+    *result = NULL;
+
+    if (access(path, X_OK) == 0) {
+        *result = strdup(path);
+        return 1;
+    }
+
+    pathext = strdup(getenv(PathExt_variable)? getenv(PathExt_variable) : "");
+    if (pathext == NULL)
+        return -ENOMEM;
+    res = 0;
+
+    ext = strtok_r(pathext, PathExt_delimiter, &wherextst);
+    while (ext != NULL) {
+        fullpath = malloc(strlen(path) + strlen(ext) + sizeof(""));
+        if (fullpath == NULL) {
+            res = -ENOMEM;
+            goto leaving;
+        }
+        strcpy(fullpath, path);
+        strcat(fullpath, ext);
+
+        if (access(fullpath, X_OK) == 0) {
+            *result = fullpath;
+            res = 1;
+            goto leaving;
+        }
+
+        free(fullpath);
+        ext = strtok_r(NULL, PathExt_delimiter, &wherextst);
+    }
+    res = 0;
+
+leaving:
+    free(pathext);
+    return res;
+}
+
+int
 where(const char* cmd, char** result)
 {
     // build-platform specific environment variables
@@ -96,7 +148,8 @@ where(const char* cmd, char** result)
 
     // regular variable definitions
     char* path;
-    char* p; char* s;
+    char* p; char* s, *sext;
+    char* wherest;
 
     assert(result != NULL);
     *result = NULL;
@@ -108,24 +161,26 @@ where(const char* cmd, char** result)
 
     path = strdup(getenv(Path_variable)? getenv(Path_variable) : "");
     if (path == NULL)
-        return ENOMEM;
+        return -ENOMEM;
 
-    p = strtok(path, Path_delimiter);
+    p = strtok_r(path, Path_delimiter, &wherest);
     while (p != NULL) {
         s = malloc(strlen(p) + strlen(cmd) + sizeof(Path_delimiter));
         if (s == NULL) {
             free(path);
-            return ENOMEM;
+            return -ENOMEM;
         }
 
         strcpy(s, p);
         strcat(s, "/");
 
-        if (access(strcat(s, cmd), X_OK) == 0)
-            break;
+        if (whereExt(strcat(s,cmd), &sext) == 1) {
+            free(s); s = sext; break;
+        }
+        free(sext);
 
         free(s); s = NULL;
-        p = strtok(NULL, Path_delimiter);
+        p = strtok_r(NULL, Path_delimiter, &wherest);
     }
     *result = p? s : NULL;
     free(path);
@@ -264,13 +319,16 @@ _fork_prepare_child(HANDLE hChild, HANDLE hData)
         return -1;
 
     handle = GetStdHandle(STD_INPUT_HANDLE);
+    assert( handle != INVALID_HANDLE_VALUE );
     assert( DuplicateHandle(hCurrentProcess, handle, hChild, &shared->hStdin, 0, TRUE, DUPLICATE_SAME_ACCESS) != 0);
 
     handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    assert( DuplicateHandle(hCurrentProcess, handle, hChild, &shared->hStdout, 0, TRUE, DUPLICATE_SAME_ACCESS) != 0);
+    assert( handle != INVALID_HANDLE_VALUE );
+    assert( DuplicateHandle(hCurrentProcess, handle, hChild, &shared->hStdout, 0, TRUE, DUPLICATE_SAME_ACCESS) != 0 );
 
     handle = GetStdHandle(STD_ERROR_HANDLE);
-    assert( DuplicateHandle(hCurrentProcess, handle, hChild, &shared->hStderr, 0, TRUE, DUPLICATE_SAME_ACCESS) != 0);
+    assert( handle != INVALID_HANDLE_VALUE );
+    assert( DuplicateHandle(hCurrentProcess, handle, hChild, &shared->hStderr, 0, TRUE, DUPLICATE_SAME_ACCESS) != 0 );
 
     if (UnmapViewOfFile(shared) == FALSE)
         return -1;
@@ -291,13 +349,59 @@ _fork_child_entry(HANDLE hData)
     assert( _to_descriptor(shared->hStdout, STDOUT_FILENO) >= 0);
     assert( _to_descriptor(shared->hStderr, STDERR_FILENO) >= 0);
 
+#if defined(__CYGWIN__)
+    // re-initialize cygwin
+    dll_dllcrt0();
+#endif
+#if defined(__CYGWIN__) && defined(_NATIVE_)
+    _fork_override_cygwin_exceptions();
+#endif
+
     if (UnmapViewOfFile(shared) == FALSE)
         return -1;
     return 0;
 }
 
+#if defined(__CYGWIN__) && defined(_NATIVE_)
+LONG CALLBACK
+_fork_cygwin_exception_handler(PEXCEPTION_POINTERS ExceptionInfo)
+{
+    DWORD errorCode;
+    errorCode = ExceptionInfo->ExceptionRecord->ExceptionCode;
+    ExitProcess(errorCode);
+//    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+LONG CALLBACK
+_fork_cygwin_continue_handler(PEXCEPTION_POINTERS ExceptionInfo)
+{
+    DWORD errorCode;
+    errorCode = ExceptionInfo->ExceptionRecord->ExceptionCode;
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+int
+_fork_override_cygwin_exceptions()
+{
+    HANDLE hr;
+    hr = AddVectoredExceptionHandler(1, &_fork_cygwin_exception_handler);
+    assert(hr != NULL);
+    hr = AddVectoredContinueHandler(1, &_fork_cygwin_continue_handler);
+    assert(hr != NULL);
+}
+
+#else // defined(__CYGWIN__) && defined(_NATIVE_)
+
+int
+_fork_override_cygwin_exceptions()
+{
+    return 0;
+}
+
+#endif // defined(__CYGWIN__) && defined(_NATIVE_)
+
 _pid_t
-native_fork()
+native_fork(void)
 {
 	RTL_USER_PROCESS_INFORMATION pri;
 	NTSTATUS hr; int res;
@@ -580,7 +684,7 @@ native_execv(const char* path, char* const argv[])
 }
 
 int
-native_execve(const char* path, char* const argv[], char*const envp[])
+native_execve(const char* posixpath, char* const argv[], char*const envp[])
 {
     static const char delimiter[] = " ";
     static const char terminator[] = "\x00";
@@ -590,9 +694,36 @@ native_execve(const char* path, char* const argv[], char*const envp[])
     DWORD exitCode;
 
     char*const* p; size_t length;
+    char* path;
+
+    #ifdef __CYGWIN__
+    ssize_t cygsz;
+    char* cygpath;
+    #endif
 
     memset(&si, 0, sizeof(si));
     memset(&pi, 0, sizeof(pi));
+
+    #ifdef __CYGWIN__
+        // convert from posix path to windows path
+        cygsz = cygwin_conv_path(CCP_POSIX_TO_WIN_A, posixpath, NULL, 0);
+        if (cygsz < 0)
+            goto fail;
+
+        cygpath = malloc(cygsz);
+        if (cygpath == NULL)
+            goto fail;
+
+        if (cygwin_conv_path(CCP_POSIX_TO_WIN_A, posixpath, cygpath, cygsz) < 0) {
+            free(cygpath);
+            goto fail;
+        }
+        path = cygpath;
+    #else
+        path = strdup(posixpath);
+        if (path == NULL)
+            goto fail;
+    #endif
 
     // build commandline
     length = strlen(path)+sizeof(delimiter);
@@ -657,6 +788,7 @@ fail_environment:
 
 fail_commandline:
     free(commandline);
+    free(path);
 
 fail:
     return -1;
@@ -672,7 +804,7 @@ native_execvp(const char *file, char *const argv[])
     if (res == -1)
         return -1;
 
-    if (res > 0) {
+    if (res < 0) {
         errno = ENOENT;
         goto fail;
     }
@@ -1038,9 +1170,3 @@ mtx_unlock(mtx_t* mtx)
         return -1;
     return 0;
 }
-
-/** passthrough wrappers */
-void (*native_exit)(int) = exit;
-char* (*native_getenv)(const char*) = getenv;
-int (*native_atoi)(const char*) = atoi;
-void (*native_init)(void) = init;

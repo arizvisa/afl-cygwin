@@ -160,7 +160,7 @@ static void edit_params(u32 argc, char** argv) {
 
     }
 
-#else
+#elif !defined(_WIN32)
 
     if (!strcmp(name, "afl-g++")) {
       u8* alt_cxx = getenv("AFL_CXX");
@@ -171,6 +171,17 @@ static void edit_params(u32 argc, char** argv) {
     } else {
       u8* alt_cc = getenv("AFL_CC");
       cc_params[0] = alt_cc ? alt_cc : (u8*)"gcc";
+    }
+#else
+    if (!strcmp(name, "afl-g++")) {
+      u8* alt_cxx = getenv("AFL_CXX");
+      cc_params[0] = alt_cxx ? alt_cxx : (u8*)"g++.exe";
+    } else if (!strcmp(name, "afl-gcj")) {
+      u8* alt_cc = getenv("AFL_GCJ");
+      cc_params[0] = alt_cc ? alt_cc : (u8*)"gcj.exe";
+    } else {
+      u8* alt_cc = getenv("AFL_CC");
+      cc_params[0] = alt_cc ? alt_cc : (u8*)"gcc.exe";
     }
 
 #endif /* __APPLE__ */

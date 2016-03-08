@@ -127,7 +127,11 @@ static void edit_params(int argc, char** argv) {
 
   as_params = ck_alloc((argc + 32) * sizeof(u8*));
 
+#ifndef _WIN32
   as_params[0] = afl_as ? afl_as : (u8*)"as";
+#else
+  as_params[0] = afl_as ? afl_as : (u8*)"as.exe";
+#endif
 
   as_params[argc] = 0;
 
