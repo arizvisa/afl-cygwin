@@ -388,6 +388,22 @@ static const u8* main_payload_32 =
 
 #ifdef __APPLE__
 #  define CALL_L64(str)		"call _" str "\n"
+#elif defined(_WIN32)
+
+    // translate the calling convention from sysv to win-x64.
+    //     luckily, we only need to xform at most 3 arguments
+    #define CALL_L64(str) \
+                        "pushq %rcx\n"			\
+                        "pushq %rdx\n"			\
+                        "pushq %r8\n"			\
+                        "movq %rdx,%r8\n"		\
+                        "movq %rsi,%rdx\n"		\
+                        "movq %rdi,%rcx\n"		\
+                        "call " str "@PLT\n"	\
+                        "popq %r8\n"			\
+                        "popq %rdx\n"			\
+                        "popq %rcx\n"
+
 #else
 #  define CALL_L64(str)		"call " str "@PLT\n"
 #endif /* ^__APPLE__ */
