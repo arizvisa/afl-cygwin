@@ -104,17 +104,18 @@
 
  */
 
-#if defined(__CYGWIN__) || defined(__MSYS__)
-# define NATIVECALL(str)	"call _native_" str "\n" 
-# ifdef _NATIVE_
-#  define CALL(str)	NATIVECALL(str)
-# else
-#  define CALL(str)	"call _" str "\n"
-# endif
+#ifdef _WIN32
+    #define NATIVECALL(str) "call _native_" str "\n" 
+
+    #ifdef _NATIVE_
+        #define CALL(str)   NATIVECALL(str)
+    #else
+        #define CALL(str)   "call _" str "\n"
+    #endif
 #else
-#  define NATIVECALL(str)	"call " str "\n"
-#  define CALL(str)	NATIVECALL(STR)
-#endif /* ^__APPLE__ */
+    #define NATIVECALL(str) "call " str "\n"
+    #define CALL(str)       NATIVECALL(STR)
+#endif // _WIN32
 
 
 static const u8* trampoline_fmt_32 =
@@ -386,27 +387,41 @@ static const u8* main_payload_32 =
    to work around the crash issue with .lcomm and the fact that they don't
    recognize .string. */
 
-#ifdef __APPLE__
-#  define CALL_L64(str)		"call _" str "\n"
-#elif defined(_WIN32)
-
+#ifdef _WIN32
     // translate the calling convention from sysv to win-x64.
     //     luckily, we only need to xform at most 3 arguments
-    #define CALL_L64(str) \
-                        "pushq %rcx\n"			\
-                        "pushq %rdx\n"			\
-                        "pushq %r8\n"			\
-                        "movq %rdx,%r8\n"		\
-                        "movq %rsi,%rdx\n"		\
-                        "movq %rdi,%rcx\n"		\
-                        "call " str "@PLT\n"	\
-                        "popq %r8\n"			\
-                        "popq %rdx\n"			\
-                        "popq %rcx\n"
-
+    #define x64cc(instruction) \
+                    "pushq %rcx\n"      \
+                    "pushq %rdx\n"      \
+                    "pushq %r8\n"       \
+                    "movq %rdx,%r8\n"   \
+                    "movq %rsi,%rdx\n"  \
+                    "movq %rdi,%rcx\n"  \
+                    "" instruction ""   \
+                    "popq %r8\n"        \
+                    "popq %rdx\n"       \
+                    "popq %rcx\n"
 #else
-#  define CALL_L64(str)		"call " str "@PLT\n"
-#endif /* ^__APPLE__ */
+    #define x64cc(instruction)  instruction
+#endif  // _WIN32
+
+#ifdef __APPLE__
+    #define NATIVECALL_L64(str) NATIVECALL("_" str)
+    #define CALL_L64(str)       NATIVECALL_L64(str)
+
+#elif defined(_WIN32)
+    #define NATIVECALL_L64(str) x64cc("call native_" str "\n")
+
+    #ifdef _NATIVE_
+        #define CALL_L64(str)   NATIVECALL_L64(str)
+    #else
+        #define CALL_L64(str)   x64cc("call " str "@PLT\n")
+    #endif
+
+#else   // ^(_WIN32 || __APPLE__) */
+    #define NATIVECALL_L64(str) NATIVECALL(str "@PLT")
+    #define CALL_L64(str)       NATIVECALL_L64(str)
+#endif  // __APPLE__
 
 static const u8* main_payload_64 = 
 
@@ -425,6 +440,10 @@ static const u8* main_payload_64 =
   ".globl close\n"
   ".globl _exit\n"
   ".globl __afl_global_area_ptr\n"
+#endif
+#ifdef _WIN32
+  ".global native_init\n"
+  ".global native_shmat\n"
 #endif
   ".align 8\n"
   "\n"
@@ -477,6 +496,9 @@ static const u8* main_payload_64 =
   "\n"
   "  cmpb $0, __afl_setup_failure(%rip)\n"
   "  jne __afl_return\n"
+#ifdef _WIN32
+  NATIVECALL_L64("init")
+#endif
   "\n"
   "  /* Check out if we have a global pointer on file. */\n"
   "\n"
@@ -547,7 +569,7 @@ static const u8* main_payload_64 =
   "  xorq %rdx, %rdx   /* shmat flags    */\n"
   "  xorq %rsi, %rsi   /* requested addr */\n"
   "  movq %rax, %rdi   /* SHM ID         */\n"
-  CALL_L64("shmat")
+  NATIVECALL_L64("shmat")
   "\n"
   "  cmpq $-1, %rax\n"
   "  je   __afl_setup_abort\n"
