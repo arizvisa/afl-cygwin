@@ -217,31 +217,35 @@ _get_PebBaseAddress(HANDLE hProcess)
 
 static inline
 int
-_from_descriptor(int fd, HANDLE* result)
+_from_descriptor(void* fd, HANDLE* result)
 {
+    intptr_t res = (intptr_t)fd;
     static const DWORD StdHandleTable[] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
-    if (fd < 0 || !(fd < 3)) {
+
+    if (res < 0 || !(res < 3)) {
         errno = EINVAL;
         return -1;
     }
-    assert(fd < sizeof(StdHandleTable)/sizeof(StdHandleTable[0]) );
-    *result = GetStdHandle(StdHandleTable[fd]);
+    assert(res < sizeof(StdHandleTable)/sizeof(StdHandleTable[0]) );
+    *result = GetStdHandle(StdHandleTable[res]);
     return *result == INVALID_HANDLE_VALUE? -1 : 0;
 }
 
 static inline
 int
-_to_descriptor(HANDLE source, int fd)
+_to_descriptor(HANDLE source, void* fd)
 {
+    intptr_t res = (intptr_t)fd;
     static const DWORD StdHandleTable[] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
-    if (fd < 0 || !(fd < 3)) {
+
+    if (res < 0 || !(res < 3)) {
         errno = EINVAL;
         return -1;
     }
     // FIXME: int cygwin_attach_handle_to_fd(char* name, int fd, HANDLE handle, mode_t bin, DWORD myaccess)
 
-    assert(fd < sizeof(StdHandleTable)/sizeof(StdHandleTable[0]) );
-    return SetStdHandle(StdHandleTable[fd], source)? 0 : -1;
+    assert(res < sizeof(StdHandleTable)/sizeof(StdHandleTable[0]) );
+    return SetStdHandle(StdHandleTable[res], source)? 0 : -1;
 }
 
 static int
@@ -345,9 +349,9 @@ _fork_child_entry(HANDLE hData)
         return -1;
 
     // snag handles that parent has duped for us
-    assert( _to_descriptor(shared->hStdin, STDIN_FILENO) >= 0);
-    assert( _to_descriptor(shared->hStdout, STDOUT_FILENO) >= 0);
-    assert( _to_descriptor(shared->hStderr, STDERR_FILENO) >= 0);
+    assert( _to_descriptor(shared->hStdin, (void*)STDIN_FILENO) >= 0);
+    assert( _to_descriptor(shared->hStdout, (void*)STDOUT_FILENO) >= 0);
+    assert( _to_descriptor(shared->hStderr, (void*)STDERR_FILENO) >= 0);
 
 #if defined(__CYGWIN__)
     // re-initialize cygwin
@@ -552,13 +556,13 @@ native_dup(_pfd oldd)
 {
     HANDLE fd, res;
 
-    if (_from_descriptor((int)oldd, &fd) == -1)
+    if (_from_descriptor(oldd, &fd) == -1)
         return (_pfd)-1;
 
     HANDLE hProcess = GetCurrentProcess();
     if (!DuplicateHandle(hProcess, fd, hProcess, &res, 0, TRUE, DUPLICATE_SAME_ACCESS))
         return (_pfd)-1;
-    assert(((int)(res) & 3) != (int)res); // ensure that returned handle is not a magic value (should be aligned to 4 anyways)
+    assert(((intptr_t)res & 3) != (intptr_t)res); // ensure that returned handle is not a magic value (should be aligned to 4 anyways)
     return (_pfd)res;
 }
 
@@ -568,10 +572,10 @@ native_dup2(_pfd oldd, _pfd newd)
     HANDLE hTarget;
     HANDLE res;
 
-    if (_from_descriptor((int)newd, &hTarget) == 0)
+    if (_from_descriptor(newd, &hTarget) == 0)
         CloseHandle(hTarget);
     res = (HANDLE) native_dup(oldd);
-    if (_to_descriptor(res, (int)newd) == -1)
+    if (_to_descriptor(res, newd) == -1)
         return (_pfd)-1;
     return (_pfd)res;
 }
@@ -614,7 +618,7 @@ native_read(_pfd fd, void* buf, size_t nbytes)
     DWORD sz; HANDLE _fd;
     assert(buf != NULL);
 
-    if (_from_descriptor((int)fd, &_fd) == -1)
+    if (_from_descriptor(fd, &_fd) == -1)
         return -1;
 
     if (ReadFile(_fd, buf, nbytes, &sz, NULL) == FALSE) {
@@ -630,7 +634,7 @@ native_write(_pfd fd, const void* buf, size_t nbytes)
     DWORD sz; HANDLE _fd;
     assert(buf != NULL);
 
-    if (_from_descriptor((int)fd, &_fd) == -1)
+    if (_from_descriptor(fd, &_fd) == -1)
         return -1;
 
     if (WriteFile(_fd, buf, nbytes, &sz, NULL) == FALSE) {
@@ -644,7 +648,7 @@ int
 native_close(_pfd fd)
 {
     HANDLE _fd;
-    if (_from_descriptor((int)fd, &_fd) == -1)
+    if (_from_descriptor(fd, &_fd) == -1)
         return -1;
 
     return CloseHandle(_fd)? 0 : -1;

@@ -280,6 +280,14 @@ static void edit_params(u32 argc, char** argv) {
 
 }
 
+void
+scream_parameters(u8** parms)
+{
+    OKF("Executing:"); SAYF(cBRI);
+    while (*parms != NULL)
+        SAYF("%s ", *(parms++));
+    SAYF(cRST "\n");
+}
 
 /* Main entry point */
 
@@ -321,13 +329,4 @@ int main(int argc, char** argv) {
   FATAL("Oops, failed to execute '%s' - check your PATH", cc_params[0]);
 
   return 0;
-}
-
-void
-scream_parameters(char** parms)
-{
-    OKF("Executing:"); SAYF(cBRI);
-    while (*parms != NULL)
-        SAYF("%s ", *(parms++));
-    SAYF(cRST "\n");
 }

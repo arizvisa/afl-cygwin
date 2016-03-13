@@ -6592,7 +6592,7 @@ static void check_binary(u8* fname) {
   e_lfanew = *(int*)(&f_data[0x3c]);
 
   f_hdr = f_data + e_lfanew;
-  if (f_hdr[0] != 'P' || f_hdr[1] != 'E' || f_hdr[2] != '\x00' && f_hdr[3] != '\x00')
+  if (f_hdr[0] != 'P' || f_hdr[1] != 'E' || f_hdr[2] != '\x00' || f_hdr[3] != '\x00')
     FATAL("Program '%s' is not a Portable executable ", target_path);
 
 #elif defined(__APPLE__)
