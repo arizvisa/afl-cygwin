@@ -114,7 +114,7 @@
     #endif
 #else
     #define NATIVECALL(str) "call " str "\n"
-    #define CALL(str)       NATIVECALL(STR)
+    #define CALL(str)       NATIVECALL(str)
 #endif // _WIN32
 
 
