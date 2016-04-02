@@ -296,7 +296,7 @@ static const u8* main_payload_32 =
   "     caches getpid() results and offers no way to update the value, breaking\n"
   "     abort(), raise(), and a bunch of other things :-( */\n"
   "\n"
-  CALL("fork")
+  NATIVECALL("fork")
   "\n"
   "  cmpl $0, %eax\n"
   "  jl   __afl_die\n"
@@ -624,7 +624,7 @@ static const u8* main_payload_64 =
   "     caches getpid() results and offers no way to update the value, breaking\n"
   "     abort(), raise(), and a bunch of other things :-( */\n"
   "\n"
-  CALL_L64("fork")
+  NATIVECALL_L64("fork")
   "  cmpq $0, %rax\n"
   "  jl   __afl_die\n"
   "  je   __afl_fork_resume\n"

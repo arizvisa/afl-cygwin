@@ -404,6 +404,7 @@ _fork_override_cygwin_exceptions()
 
 #endif // defined(__CYGWIN__) && defined(_NATIVE_)
 
+#ifdef _NATIVE_
 _pid_t
 native_fork(void)
 {
@@ -473,8 +474,25 @@ fail_process:
 fail_shmem: CloseHandle(hFile);
 fail_event: CloseHandle(ev);
 fail:
+    // FIXME: set errno to some kind of error so that this actually will work
     return (_pid_t) -1;
 }
+#else
+void _shm_restore(DWORD pid);
+
+_pid_t
+native_fork(void)
+{
+    int res;
+    DWORD pid = cygwin_internal(CW_CYGWIN_PID_TO_WINPID, getpid());
+    
+    res = fork();
+    if (res == 0) {
+        _shm_restore(pid);
+    }
+    return res;
+}
+#endif
 
 _pid_t
 native_waitpid(_pid_t wpid, int* status, int options)
@@ -866,6 +884,9 @@ struct _shm_cache {
     int identifier;
     HANDLE handle;
     struct _shm_cache* next;
+
+    void* _address;
+    DWORD _access;
 };
 
 #define SHM_PREFIX "winapi-shm-"
@@ -895,6 +916,9 @@ __shm_push(int identifier, HANDLE handle)
     head->identifier = identifier;
     head->handle = handle;
     head->next = p;
+
+    head->_address = NULL;
+    head->_access = 0;
     return head;
 }
 
@@ -1009,6 +1033,62 @@ _shm_close(int identifier)
     return 0;
 }
 
+void
+_shm_restore(DWORD pid)
+{
+    struct _shm_cache* ch = __shm_get(0);
+    LPVOID p;
+
+    HANDLE handle, hParent = OpenProcess(PROCESS_DUP_HANDLE, FALSE, pid);
+
+    if (hParent == NULL)
+        fatal("OpenProcess(PROCESS_DUP_HANDLE, FALSE, %x)", pid);
+
+    // go through and map all shared memory back into the address-space
+    while (ch->next != NULL) {
+
+        // copy the handle from the parent
+        if (!DuplicateHandle(hParent, ch->handle, GetCurrentProcess(), &handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+            fatal("DuplicateHandle(%p, %p, %p, %p, 0, FALSE, DUPLICATE_SAME_ACCESS)", hParent, ch->handle, GetCurrentProcess(), &handle);
+        ch->handle = handle;
+
+        // if there's no address, then skip
+        if (ch->_address == NULL)
+            continue;
+
+        // check to see if something is in the way so we can rudely remove it.
+        MEMORY_BASIC_INFORMATION mbi;
+        if (VirtualQuery(ch->_address, &mbi, sizeof(mbi)) != sizeof(mbi))
+            fatal("VirtualQuery(%p, %p, %x) -> %x", ch->_address, &mbi, sizeof(mbi), GetLastError());
+
+        if (mbi.State != MEM_FREE) {
+            switch(mbi.Type) {
+                case MEM_IMAGE:
+                    fatal("MEMORY_BASIC_INFORMATION.Type == MEM_IMAGE");
+                    break;
+                    
+                case MEM_MAPPED:
+                    if (!UnmapViewOfFile(mbi.BaseAddress))
+                        fatal("UnmapViewOfFile(%p) -> %x", mbi.BaseAddress, GetLastError());
+                    break;
+
+                case MEM_PRIVATE:
+                    if (!VirtualFree(mbi.AllocationBase, mbi.RegionSize, MEM_RELEASE))
+                        fatal("VirtualFree(%p, %x, MEM_RELEASE) -> %x", mbi.AllocationBase, mbi.RegionSize, GetLastError());
+                    break;
+            }
+        }
+        
+        // now map our shmem back to the expected address
+        p = MapViewOfFileEx(ch->handle, ch->_access, 0, 0, 0, ch->_address);
+        if (p != ch->_address)
+            fatal("MapViewOfFileEx(%p, %x, 0, 0, 0, %p) returned %p -> %x", ch->handle, ch->_access, ch->_address, p, GetLastError());
+
+        // iterate to next mapping
+        ch = ch->next;
+    }
+}
+
 /** shm wrappers */
 
 // FIXME: key and id are actually treated the same here..
@@ -1066,15 +1146,18 @@ native_shmat(int shmid, const void* shmaddr, int shmflg)
         errno = EINVAL;
         return (void*)-1;
     }
-    axxs = shmflg? FILE_MAP_READ : FILE_MAP_READ|FILE_MAP_WRITE;
-
     hFile = _shm_open(shmid);
     if (hFile == INVALID_HANDLE_VALUE) {
         errno = ENOENT;
         return (void*)-1;
     }
 
-    p = MapViewOfFile(hFile, axxs, 0, 0, 0);
+    struct _shm_cache* ch = __shm_find(shmid);
+    if (ch->_address)
+        return ch->_address;
+
+    axxs = ch->_access = shmflg? FILE_MAP_READ : FILE_MAP_READ|FILE_MAP_WRITE;
+    p = ch->_address = MapViewOfFile(hFile, axxs, 0, 0, 0);
     if (p == NULL) {
         errno = ENOTSUP;
         return (void*)-1;
