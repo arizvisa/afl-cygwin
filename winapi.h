@@ -3,11 +3,11 @@
 
 #include <windows.h>
 #include <winternl.h>
-#include <ntdef.h>
 #include <sys/types.h>
 
 #ifdef __CYGWIN__
 #include <sys/cygwin.h>
+#include <ntdef.h>
 #endif
 
 #define DebugMark(...) do {   \
@@ -19,7 +19,7 @@
 #ifdef _WIN32
     typedef HANDLE _pfd;        // dual posix file-descriptor and HANDLE
     typedef HANDLE _pid_t;      // really a HANDLE to a process
-
+	typedef LONG_PTR ssize_t;
 //        #define pid_t _pid_t
 #else
     typedef int _pfd;       // really an fd
@@ -128,6 +128,11 @@ typedef struct _SECTION_IMAGE_INFORMATION
     ULONG CheckSum;
 } SECTION_IMAGE_INFORMATION, *PSECTION_IMAGE_INFORMATION;
 
+typedef struct {
+	HANDLE UniqueProcess;
+	HANDLE UniqueThread;
+} CLIENT_ID, *PCLIENT_ID;
+
 typedef struct _RTL_USER_PROCESS_INFORMATION
 {
     ULONG Size;
@@ -171,17 +176,20 @@ extern pf_LdrpInitializeProcess LdrpInitializeProcess;
 #define read native_read
 #define close native_close
 */
+#ifdef __CYGWIN__
 #include <sys/shm.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#endif
+
 #define shmget native_shmget
 #define shmctl native_shmctl
 #define shmat native_shmat
 #define shmdt native_shmdt
-#include <unistd.h>
 #ifdef _NATIVE_
     #define fork native_fork
     #define pipe native_pipe
 #endif
-#include <sys/wait.h>
 #ifdef _NATIVE_
     #define waitpid native_waitpid
     #define execv native_execv
