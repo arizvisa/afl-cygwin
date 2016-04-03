@@ -13,7 +13,10 @@
 #include <sys/cygwin.h>
 #include <sys/wait.h>
 #include <sys/signal.h>
+#else 
+#include "asprintf.h"
 #endif
+
 
 /** globals */
 pf_NtRtlCloneUserProcess CloneUserProcess;
@@ -49,10 +52,10 @@ static struct import_t Ntdll_Imports[] =
 
 
 /** constructor */
-#ifdef __GNUC__
-__attribute__((noreturn))
-#elif defined(_MSC_VER)
+#ifdef _MSC_VER
 __declspec(noreturn)
+#else
+__attribute__((noreturn))
 #endif
 static void 
 fatal(const char* fmt, ...)
@@ -91,12 +94,8 @@ native_init(void)
 }
 
 #ifdef _MSC_VER
-/* Values for the second argument to access.
-These may be OR'd together.  */
 #define R_OK    4       /* Test for read permission.  */
-#define W_OK    2       /* Test for write permission.  */
-#define X_OK    1       /* execute permission - unsupported in windows*/
-#define F_OK    0       /* Test for existence.  */
+#define strtok_r strtok_s
 #endif 
 
 int
@@ -501,7 +500,7 @@ fail:
 #else
 void _shm_restore(DWORD pid);
 
-#ifdef __CYGWIN__
+#ifndef _MSC_VER // uses cygwin_internal functionality
 _pid_t
 native_fork(void)
 {
@@ -517,7 +516,7 @@ native_fork(void)
 #endif
 #endif
 
-#ifndef _MSC_VER
+#ifndef _MSC_VER // needs status format fix below to enable
 _pid_t
 native_waitpid(_pid_t wpid, int* status, int options)
 {
@@ -1129,6 +1128,10 @@ _shm_restore(DWORD pid)
 }
 
 /** shm wrappers */
+
+#ifdef _MSC_VER
+#define random rand
+#endif 
 
 // FIXME: key and id are actually treated the same here..
 //          it shouldn't matter since we're not supporting IPC_EXCL
