@@ -94,7 +94,7 @@ native_init(void)
 }
 
 #ifdef _MSC_VER
-#define R_OK    4       /* Test for read permission.  */
+#define X_OK    1       /* execute permission.  */
 #define strtok_r strtok_s
 #endif 
 
