@@ -1,9 +1,4 @@
-#include <windows.h>
-#include <sys/wait.h>
-#include <sys/signal.h>
-
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <stdarg.h>
 
@@ -14,8 +9,14 @@
 #include "winapi.h"
 
 #ifdef __CYGWIN__
+#include <unistd.h>
 #include <sys/cygwin.h>
+#include <sys/wait.h>
+#include <sys/signal.h>
+#else 
+#include "asprintf.h"
 #endif
+
 
 /** globals */
 pf_NtRtlCloneUserProcess CloneUserProcess;
@@ -48,8 +49,14 @@ static struct import_t Ntdll_Imports[] =
     {NULL, 0, NULL}
 };
 
+
+
 /** constructor */
+#ifdef _MSC_VER
+__declspec(noreturn)
+#else
 __attribute__((noreturn))
+#endif
 static void 
 fatal(const char* fmt, ...)
 {
@@ -62,7 +69,9 @@ fatal(const char* fmt, ...)
     DebugBreak();
 }
 
+#ifdef __GNUC__
 __attribute__((constructor))
+#endif
 void
 native_init(void)
 {
@@ -76,13 +85,18 @@ native_init(void)
     for (imp = &Ntdll_Imports[0]; imp->target != NULL; imp++) {
         fp = imp->name?
             GetProcAddress(ntdll_base, imp->name) :
-            ntdll_base+imp->offset
+            (FARPROC)((char *)ntdll_base+imp->offset)
         ;
         if (fp == NULL)
             fatal("GetProcAddress(\"ntdll.dll\", \"%s\") failed!", imp->name);
         memcpy(imp->target, &fp, sizeof(fp));
     }
 }
+
+#ifdef _MSC_VER
+#define X_OK    1       /* execute permission.  */
+#define strtok_r strtok_s
+#endif 
 
 int
 whereExt(const char* path, char** result)
@@ -349,9 +363,15 @@ _fork_child_entry(HANDLE hData)
         return -1;
 
     // snag handles that parent has duped for us
+#if defined(_MSC_VER)
+	assert(_to_descriptor(shared->hStdin, (void*)_fileno(stdin)) >= 0);
+	assert(_to_descriptor(shared->hStdout, (void*)_fileno(stdout)) >= 0);
+	assert(_to_descriptor(shared->hStderr, (void*)_fileno(stdout)) >= 0);
+#else
     assert( _to_descriptor(shared->hStdin, (void*)STDIN_FILENO) >= 0);
     assert( _to_descriptor(shared->hStdout, (void*)STDOUT_FILENO) >= 0);
     assert( _to_descriptor(shared->hStderr, (void*)STDERR_FILENO) >= 0);
+#endif
 
 #if defined(__CYGWIN__)
     // re-initialize cygwin
@@ -480,6 +500,7 @@ fail:
 #else
 void _shm_restore(DWORD pid);
 
+#ifndef _MSC_VER // uses cygwin_internal functionality
 _pid_t
 native_fork(void)
 {
@@ -493,7 +514,9 @@ native_fork(void)
     return res;
 }
 #endif
+#endif
 
+#ifndef _MSC_VER // needs status format fix below to enable
 _pid_t
 native_waitpid(_pid_t wpid, int* status, int options)
 {
@@ -568,6 +591,7 @@ native_waitpid(_pid_t wpid, int* status, int options)
     }
     return wpid;
 }
+#endif
 
 _pfd
 native_dup(_pfd oldd)
@@ -597,6 +621,10 @@ native_dup2(_pfd oldd, _pfd newd)
         return (_pfd)-1;
     return (_pfd)res;
 }
+
+#ifdef _MSC_VER
+typedef UINT32 mode_t;
+#endif 
 
 int
 _open_dev(const char* device_path, int flags, mode_t mode)
@@ -846,6 +874,16 @@ native_setsid(void)
     return (_pid_t)-1;
 }
 
+#ifdef _MSC_VER
+#undef SIGABRT
+
+#define	SIGQUIT	3	/* quit */
+#define	SIGABRT	6	/* abort() */
+#define	SIGKILL	9	/* kill (cannot be caught or ignored) */
+#define SIGUSR1 30	/* user defined signal 1 */
+#define SIGUSR2 31	/* user defined signal 2 */
+#endif 
+
 int
 native_kill(_pid_t pid, int sig)
 {
@@ -1091,6 +1129,10 @@ _shm_restore(DWORD pid)
 
 /** shm wrappers */
 
+#ifdef _MSC_VER
+#define random rand
+#endif 
+
 // FIXME: key and id are actually treated the same here..
 //          it shouldn't matter since we're not supporting IPC_EXCL
 int
@@ -1215,6 +1257,17 @@ mtx_lock(mtx_t* mtx)
     assert(dwResult == WAIT_OBJECT_0);  // != WAIT_TIMEOUT
     return 0;
 }
+
+#ifdef _MSC_VER
+#ifdef timespec
+#undef timespec
+#endif
+struct timespec
+{
+	time_t tv_sec;
+	long tv_nsec;
+};
+#endif
 
 int
 mtx_timedlock(mtx_t* mtx, const struct timespec* ts)
