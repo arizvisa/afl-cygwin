@@ -1,22 +1,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#ifdef _MSC_VER
+#define random rand
+#define strtok_r strtok_s
+#endif
+
+#ifndef _MSC_VER
+    #include <unistd.h>
+#endif
 
 #include <fcntl.h>
 #include <errno.h>
 #include <assert.h>
 
+#ifndef _MSC_VER
+    #include <sys/wait.h>
+    #include <sys/signal.h>
+#else
+    #include "asprintf.h"
+#endif
+
+#include <sys/stat.h>
+#ifndef _MSC_VER
+    #define s_stat stat
+    #define p_stat stat
+#else
+    #define s_stat _stat64i32
+    #define p_stat _stat
+#endif
+
 #include "winapi.h"
 
 #ifdef __CYGWIN__
-#include <unistd.h>
-#include <sys/cygwin.h>
-#include <sys/wait.h>
-#include <sys/signal.h>
-#else 
-#include "asprintf.h"
+    #include <sys/cygwin.h>
 #endif
-
 
 /** globals */
 pf_NtRtlCloneUserProcess CloneUserProcess;
@@ -34,7 +52,7 @@ pf_LdrpInitializeProcess LdrpInitializeProcess;
 
 struct import_t { PCHAR name; size_t offset; void* target; };
 
-static LPVOID ntdll_base;
+static LPVOID ntdll_base = NULL;
 static struct import_t Ntdll_Imports[] =
 {
     {"RtlCloneUserProcess", 0, &CloneUserProcess},
@@ -49,15 +67,13 @@ static struct import_t Ntdll_Imports[] =
     {NULL, 0, NULL}
 };
 
-
-
 /** constructor */
-#ifdef _MSC_VER
-__declspec(noreturn)
-#else
+#ifdef __GNUC__
 __attribute__((noreturn))
+#elif defined(_MSC_VER)
+__declspec(noreturn)
 #endif
-static void 
+static void
 fatal(const char* fmt, ...)
 {
     va_list va;
@@ -69,14 +85,32 @@ fatal(const char* fmt, ...)
     DebugBreak();
 }
 
+// static void native_init(void)
 #ifdef __GNUC__
-__attribute__((constructor))
+    __attribute__((constructor))
+    void native_init(void)
+
+#elif defined(_MSC_VER)
+    void native_init(void);
+
+    #ifdef _WIN64
+        #define cons_prefix ""
+    #else
+        #define cons_prefix "_"
+    #endif
+
+    #pragma section(".CRT$XCU",read)
+    __declspec(allocate(".CRT$XCU")) void(*__native_init)(void) = native_init;
+    __pragma(comment(linker,"/include:" cons_prefix "__native_init"))
+    void
+    native_init(void)
 #endif
-void
-native_init(void)
 {
     struct import_t* imp;
     FARPROC fp;
+
+    if (ntdll_base != NULL)
+        return;
 
     ntdll_base = LoadLibrary("ntdll.dll");
     if (ntdll_base == NULL)
@@ -94,9 +128,48 @@ native_init(void)
 }
 
 #ifdef _MSC_VER
-#define X_OK    1       /* execute permission.  */
-#define strtok_r strtok_s
-#endif 
+int
+asprintf(char** strp, const char* fmt, ...)
+{
+    int res; char** p;
+    va_list va;
+
+    assert(strp != NULL);
+    assert(fmt != NULL);
+
+    va_start(va, fmt);
+
+    // wtf? why doesn't vsprintf on msvc using NULL as the target buffer return
+    //     the size?
+    res = _vscprintf(fmt, va);
+    if (res == -1)
+        goto failure;
+
+    p = malloc(res+1);
+    if (p == NULL) {
+        errno = ENOMEM;
+        return -1;
+    }
+    p[res] = '\x00';
+
+    res = vsnprintf(p, res, fmt, va);
+    if (res == -1)
+        free(p);
+    *strp = (res == -1)? *strp : p;
+
+failure:
+    va_end(va);
+    return res;
+}
+#endif
+
+static
+int
+_isExecutable(const char* path)
+{
+    struct s_stat st;
+    return ((p_stat(path, &st) == 0) && (st.st_mode & _S_IEXEC));
+}
 
 int
 whereExt(const char* path, char** result)
@@ -111,7 +184,7 @@ whereExt(const char* path, char** result)
     assert(result != NULL);
     *result = NULL;
 
-    if (access(path, X_OK) == 0) {
+    if (_isExecutable(path)) {
         *result = strdup(path);
         return 1;
     }
@@ -131,7 +204,7 @@ whereExt(const char* path, char** result)
         strcpy(fullpath, path);
         strcat(fullpath, ext);
 
-        if (access(fullpath, X_OK) == 0) {
+        if (_isExecutable(fullpath)) {
             *result = fullpath;
             res = 1;
             goto leaving;
@@ -168,7 +241,7 @@ where(const char* cmd, char** result)
     assert(result != NULL);
     *result = NULL;
 
-    if (access(cmd, X_OK) == 0) {
+    if (_isExecutable(cmd)) {
         *result = strdup(cmd);
         return 1;
     }
@@ -229,7 +302,7 @@ _get_PebBaseAddress(HANDLE hProcess)
     return pbi.PebBaseAddress;
 }
 
-static inline
+static
 int
 _from_descriptor(void* fd, HANDLE* result)
 {
@@ -245,7 +318,7 @@ _from_descriptor(void* fd, HANDLE* result)
     return *result == INVALID_HANDLE_VALUE? -1 : 0;
 }
 
-static inline
+static
 int
 _to_descriptor(HANDLE source, void* fd)
 {
@@ -363,15 +436,9 @@ _fork_child_entry(HANDLE hData)
         return -1;
 
     // snag handles that parent has duped for us
-#if defined(_MSC_VER)
-	assert(_to_descriptor(shared->hStdin, (void*)_fileno(stdin)) >= 0);
-	assert(_to_descriptor(shared->hStdout, (void*)_fileno(stdout)) >= 0);
-	assert(_to_descriptor(shared->hStderr, (void*)_fileno(stdout)) >= 0);
-#else
     assert( _to_descriptor(shared->hStdin, (void*)STDIN_FILENO) >= 0);
     assert( _to_descriptor(shared->hStdout, (void*)STDOUT_FILENO) >= 0);
     assert( _to_descriptor(shared->hStderr, (void*)STDERR_FILENO) >= 0);
-#endif
 
 #if defined(__CYGWIN__)
     // re-initialize cygwin
@@ -500,23 +567,20 @@ fail:
 #else
 void _shm_restore(DWORD pid);
 
-#ifndef _MSC_VER // uses cygwin_internal functionality
 _pid_t
 native_fork(void)
 {
     int res;
-    DWORD pid = cygwin_internal(CW_CYGWIN_PID_TO_WINPID, getpid());
-    
+    DWORD pid = GetCurrentProcessId();
+
     res = fork();
     if (res == 0) {
         _shm_restore(pid);
     }
-    return res;
+    return (_pid_t)res;
 }
 #endif
-#endif
 
-#ifndef _MSC_VER // needs status format fix below to enable
 _pid_t
 native_waitpid(_pid_t wpid, int* status, int options)
 {
@@ -560,7 +624,7 @@ native_waitpid(_pid_t wpid, int* status, int options)
 
             wcode = 0; winfo = res & 0x3fffffff;
         }
-        
+
 #if defined(__CYGWIN__)
         // from cygwin/wait.h
         /* A status is 16 bits, and looks like:
@@ -572,6 +636,7 @@ native_waitpid(_pid_t wpid, int* status, int options)
               <code> == 80, there was a core dump.
         */
         *status = (wcode&0xff) | ((winfo&0xff)<<8);
+
 #elif defined(__MINGW32__)
         // from sys/wait.h
         /* A status looks like:
@@ -583,25 +648,30 @@ native_waitpid(_pid_t wpid, int* status, int options)
               <code> == 80, there was a core dump.
         */
         *status = (wcode&0xffff) | ((winfo&0xffff)<<16);
+
+#elif defined(_MSC_VER)
+        #pragma message ( "Undefined status format for Microsoft compiler. Defaulting to MINGW32-style status-format." )
+        *status = (wcode&0xffff) | ((winfo&0xffff)<<16);
+
 #else
-    #error "Unsupported status format"
+        #error "Unsupported status format."
+
 #endif
         break;
 
     }
     return wpid;
 }
-#endif
 
 _pfd
 native_dup(_pfd oldd)
 {
     HANDLE fd, res;
+    HANDLE hProcess = GetCurrentProcess();
 
     if (_from_descriptor(oldd, &fd) == -1)
         return (_pfd)-1;
 
-    HANDLE hProcess = GetCurrentProcess();
     if (!DuplicateHandle(hProcess, fd, hProcess, &res, 0, TRUE, DUPLICATE_SAME_ACCESS))
         return (_pfd)-1;
     assert(((intptr_t)res & 3) != (intptr_t)res); // ensure that returned handle is not a magic value (should be aligned to 4 anyways)
@@ -622,10 +692,6 @@ native_dup2(_pfd oldd, _pfd newd)
     return (_pfd)res;
 }
 
-#ifdef _MSC_VER
-typedef UINT32 mode_t;
-#endif 
-
 int
 _open_dev(const char* device_path, int flags, mode_t mode)
 {
@@ -639,7 +705,7 @@ native_open(const char* path, int flags, ...)
     // magic for file path prefixes
     static const char* Dev_prefix = "/dev/";
     va_list va; mode_t mode;
-    
+
     // figure out the mode_t
     if (flags & O_CREAT) {
         va_start(va, flags);
@@ -812,7 +878,7 @@ native_execve(const char* posixpath, char* const argv[], char*const envp[])
     }
     memcpy(&environment[length], terminator, sizeof(terminator)); length += sizeof(terminator);
     memcpy(&environment[length], terminator, sizeof(terminator)); length += sizeof(terminator);
-    
+
     // create the process
     si.cb = sizeof(si);
 
@@ -873,16 +939,6 @@ native_setsid(void)
 {
     return (_pid_t)-1;
 }
-
-#ifdef _MSC_VER
-#undef SIGABRT
-
-#define	SIGQUIT	3	/* quit */
-#define	SIGABRT	6	/* abort() */
-#define	SIGKILL	9	/* kill (cannot be caught or ignored) */
-#define SIGUSR1 30	/* user defined signal 1 */
-#define SIGUSR2 31	/* user defined signal 2 */
-#endif 
 
 int
 native_kill(_pid_t pid, int sig)
@@ -1025,7 +1081,7 @@ _shm_open(int identifier)
     HANDLE hFile;
     char* name;
     struct _shm_cache* p;
-    
+
     // if id is in cache..
     if ((p = __shm_find(identifier)) != NULL)
         return p->handle;
@@ -1104,7 +1160,7 @@ _shm_restore(DWORD pid)
                 case MEM_IMAGE:
                     fatal("MEMORY_BASIC_INFORMATION.Type == MEM_IMAGE");
                     break;
-                    
+
                 case MEM_MAPPED:
                     if (!UnmapViewOfFile(mbi.BaseAddress))
                         fatal("UnmapViewOfFile(%p) -> %x", mbi.BaseAddress, GetLastError());
@@ -1116,7 +1172,7 @@ _shm_restore(DWORD pid)
                     break;
             }
         }
-        
+
         // now map our shmem back to the expected address
         p = MapViewOfFileEx(ch->handle, ch->_access, 0, 0, 0, ch->_address);
         if (p != ch->_address)
@@ -1128,11 +1184,6 @@ _shm_restore(DWORD pid)
 }
 
 /** shm wrappers */
-
-#ifdef _MSC_VER
-#define random rand
-#endif 
-
 // FIXME: key and id are actually treated the same here..
 //          it shouldn't matter since we're not supporting IPC_EXCL
 int
@@ -1257,17 +1308,6 @@ mtx_lock(mtx_t* mtx)
     assert(dwResult == WAIT_OBJECT_0);  // != WAIT_TIMEOUT
     return 0;
 }
-
-#ifdef _MSC_VER
-#ifdef timespec
-#undef timespec
-#endif
-struct timespec
-{
-	time_t tv_sec;
-	long tv_nsec;
-};
-#endif
 
 int
 mtx_timedlock(mtx_t* mtx, const struct timespec* ts)

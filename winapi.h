@@ -3,11 +3,21 @@
 
 #include <windows.h>
 #include <winternl.h>
+
 #include <sys/types.h>
+#ifdef _MSC_VER
+    typedef LONG_PTR ssize_t;
+    typedef UINT32 mode_t;
+
+    #undef timespec
+    struct timespec {
+        time_t tv_sec;
+        long tv_nsec;
+    };
+#endif
 
 #ifdef __CYGWIN__
-#include <sys/cygwin.h>
-#include <ntdef.h>
+    #include <sys/cygwin.h>
 #endif
 
 #define DebugMark(...) do {   \
@@ -19,7 +29,6 @@
 #ifdef _WIN32
     typedef HANDLE _pfd;        // dual posix file-descriptor and HANDLE
     typedef HANDLE _pid_t;      // really a HANDLE to a process
-	typedef LONG_PTR ssize_t;
 //        #define pid_t _pid_t
 #else
     typedef int _pfd;       // really an fd
@@ -128,10 +137,12 @@ typedef struct _SECTION_IMAGE_INFORMATION
     ULONG CheckSum;
 } SECTION_IMAGE_INFORMATION, *PSECTION_IMAGE_INFORMATION;
 
-typedef struct {
-	HANDLE UniqueProcess;
-	HANDLE UniqueThread;
-} CLIENT_ID, *PCLIENT_ID;
+#ifdef _MSC_VER
+    typedef struct {
+        HANDLE UniqueProcess;
+        HANDLE UniqueThread;
+    } CLIENT_ID, *PCLIENT_ID;
+#endif
 
 typedef struct _RTL_USER_PROCESS_INFORMATION
 {
@@ -176,19 +187,28 @@ extern pf_LdrpInitializeProcess LdrpInitializeProcess;
 #define read native_read
 #define close native_close
 */
-#ifdef __CYGWIN__
-#include <sys/shm.h>
-#include <unistd.h>
-#include <sys/wait.h>
+#ifndef _MSC_VER
+    #include <sys/shm.h>
 #endif
-
 #define shmget native_shmget
 #define shmctl native_shmctl
 #define shmat native_shmat
 #define shmdt native_shmdt
+
+#ifndef _MSC_VER
+    #include <unistd.h>
+#else
+    #define STDIN_FILENO 0
+    #define STDOUT_FILENO 1
+    #define STDERR_FILENO 2
+#endif
 #ifdef _NATIVE_
     #define fork native_fork
     #define pipe native_pipe
+#endif
+
+#ifndef _MSC_VER
+    #include <sys/wait.h>
 #endif
 #ifdef _NATIVE_
     #define waitpid native_waitpid
@@ -197,7 +217,18 @@ extern pf_LdrpInitializeProcess LdrpInitializeProcess;
     #define execvp native_execvp
     #define setsid native_setsid
 #endif
-#include <signal.h>
+
+#ifndef _MSC_VER
+    #include <signal.h>
+#else
+    #undef SIGABRT
+    #define SIGTERM 1   /* terminate */
+    #define	SIGQUIT	3	/* quit */
+    #define	SIGABRT	6	/* abort() */
+    #define	SIGKILL	9	/* kill (cannot be caught or ignored) */
+    #define SIGUSR1 30	/* user defined signal 1 */
+    #define SIGUSR2 31	/* user defined signal 2 */
+#endif
 #ifdef _NATIVE_
     #define kill native_kill
 #endif
